@@ -1,1 +1,3 @@
-data/
+data/*
+__duckdb_export_temp__/*
+*.duckdb
