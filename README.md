@@ -31,8 +31,7 @@ Sources potentielles :
 ---
 
 ##  Base de données
-- PostgreSQL
-- PostGIS (analyse spatiale)
+- DOCDB
 
 ---
 
