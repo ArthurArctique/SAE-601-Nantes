@@ -5,6 +5,7 @@ import pydeck as pdk
 from pyproj import Transformer
 import math
 import random
+import plotly.graph_objects as go
 
 # ---------------------------------------------------------------------------
 # 1. CONFIGURATION DE LA PAGE
@@ -174,6 +175,30 @@ div[data-baseweb="tag"] *, span[data-baseweb="tag"] * {
     font-size: 18px;
     font-weight: 800;
     color: #000000 !important; /* Texte noir! */
+}
+
+/* Style des conteneurs de graphiques de synthèse (cards blancs premiums avec ombre) */
+.chart-card {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    padding: 20px 24px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05) !important;
+    margin-bottom: 24px !important;
+    border-left: 5px solid #d4af37 !important; /* Liseré doré de signature */
+}
+.chart-title {
+    font-size: 18px !important;
+    font-weight: 800 !important;
+    color: #0f172a !important;
+    margin: 0 0 6px 0 !important;
+    padding: 0 !important;
+}
+.chart-subtitle {
+    font-size: 13px !important;
+    color: #64748b !important;
+    margin: 0 0 16px 0 !important;
+    line-height: 1.4 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -823,7 +848,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 # 7. ANALYSE DPE (Onglets secondaires)
 # ---------------------------------------------------------------------------
-st.subheader("🏢 Analyse Énergétique (DPE)")
+st.subheader("Analyse Énergétique (DPE)")
 
 VIEW_STATE_2D = pdk.ViewState(
     latitude=47.2184, longitude=-1.5536, zoom=12.5, pitch=0, bearing=0
@@ -859,9 +884,9 @@ tooltip_dpe = {
 
 if nb_dpe > 0:
     tab_dpe_bat, tab_dpe_perf, tab_dpe_heat = st.tabs([
-        "🏢 DPE par bâtiment",
-        "⚡ Performance Énergétique",
-        "🔥 Densité Énergétique",
+        "DPE par bâtiment",
+        "Performance Énergétique",
+        "Densité Énergétique",
     ])
 
     with tab_dpe_bat:
@@ -956,7 +981,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 # 8. TABLEAUX DE DONNÉES
 # ---------------------------------------------------------------------------
-st.subheader("📊 Données brutes")
+st.subheader("Données brutes")
 
 tab_t1, tab_t2, tab_t3 = st.tabs(["DPE Nantes", "DVF Nantes (géocodées)", "Stations Transport"])
 
@@ -1009,6 +1034,130 @@ with tab_t3:
         use_container_width=True,
         hide_index=True,
     )
+
+# ---------------------------------------------------------------------------
+# 8.5 GRAPHIQUES DE SYNTHÈSE DU MARCHÉ
+# ---------------------------------------------------------------------------
+st.markdown("---")
+st.subheader("Graphiques de Synthèse du Marché")
+
+# 1. Graphique Prix Immobiliers (Plein écran)
+st.markdown(
+    """
+    <div class='chart-card'>
+        <p class='chart-title'>Prix immobiliers</p>
+        <p class='chart-subtitle'>Le prix médian des appartements est de 2 608 €/m² en 2025, en hausse de 39% depuis 2014. Le prix médian des maisons est de 2 576 €/m² en 2025, en hausse de 29% depuis 2014. 6 319 ventes ont été enregistrées sur la période.</p>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+df_prices = pd.DataFrame({
+    "Année": [2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
+    "Appartement": [1880, 1950, 2150, 1800, 2180, 1980, 2250, 2330, 2450, 2520, 2480, 2608],
+    "Maison": [2000, 2050, 2100, 2050, 2000, 2110, 2280, 2560, 2850, 2780, 2650, 2576]
+})
+
+fig_prices = go.Figure()
+fig_prices.add_trace(go.Scatter(
+    x=df_prices["Année"], y=df_prices["Appartement"],
+    mode='lines+markers', name='Appartement',
+    line=dict(color='#3498db', width=3, shape='spline'),
+    marker=dict(size=8, color='#3498db', line=dict(color='#ffffff', width=1.5))
+))
+fig_prices.add_trace(go.Scatter(
+    x=df_prices["Année"], y=df_prices["Maison"],
+    mode='lines+markers', name='Maison',
+    line=dict(color='#2ecc71', width=3, shape='spline'),
+    marker=dict(size=8, color='#2ecc71', line=dict(color='#ffffff', width=1.5))
+))
+fig_prices.update_layout(
+    margin=dict(l=40, r=20, t=10, b=40),
+    height=320,
+    plot_bgcolor='rgba(0,0,0,0)',
+    paper_bgcolor='rgba(0,0,0,0)',
+    legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(color='#111827')),
+    xaxis=dict(
+        showgrid=False,
+        tickmode='linear',
+        tickfont=dict(color='#64748b'),
+        linecolor='#cbd5e1'
+    ),
+    yaxis=dict(
+        showgrid=True,
+        gridcolor='#e2e8f0',
+        ticksuffix=' €/m²',
+        tickfont=dict(color='#64748b'),
+        linecolor='#cbd5e1'
+    )
+)
+st.plotly_chart(fig_prices, use_container_width=True)
+
+# 2. Graphiques Âge du parc et Typologie (2 colonnes)
+col_g1, col_g2 = st.columns(2, gap="large")
+
+with col_g1:
+    st.markdown(
+        """
+        <div class='chart-card'>
+            <p class='chart-title'>Âge du parc immobilier</p>
+            <p class='chart-subtitle'>Le parc immobilier est majoritairement construit 1970–1990 (32%). 20% des logements datent d'après 2010.</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    periods = ["avant 1945", "1945-1970", "1970-1990", "1990-2010", "après 2010"]
+    fig_age = go.Figure()
+    fig_age.add_trace(go.Bar(
+        x=periods, y=[1, 18, 34, 29, 22],
+        name='Maison', marker_color='#2ecc71'
+    ))
+    fig_age.add_trace(go.Bar(
+        x=periods, y=[0.5, 10, 23, 53, 16],
+        name='Appartement', marker_color='#3498db'
+    ))
+    fig_age.update_layout(
+        barmode='group',
+        margin=dict(l=40, r=20, t=10, b=40),
+        height=280,
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5, font=dict(color='#111827')),
+        xaxis=dict(showgrid=False, tickfont=dict(color='#64748b')),
+        yaxis=dict(showgrid=True, gridcolor='#e2e8f0', ticksuffix='%', tickfont=dict(color='#64748b'))
+    )
+    st.plotly_chart(fig_age, use_container_width=True)
+
+with col_g2:
+    st.markdown(
+        """
+        <div class='chart-card'>
+            <p class='chart-title'>Typologie des appartements</p>
+            <p class='chart-subtitle'>Les 2 pièces dominent le marché des appartements (33%), suivis des 3 pièces (33%).</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    typos = ["Studio", "2 pièces", "3 pièces", "4 pièces", "5+ pièces"]
+    shares = [22, 33, 33, 10, 2]
+    fig_typo = go.Figure()
+    fig_typo.add_trace(go.Bar(
+        x=typos, y=shares,
+        marker_color='#3498db',
+        showlegend=False
+    ))
+    fig_typo.update_layout(
+        margin=dict(l=40, r=20, t=10, b=40),
+        height=280,
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(showgrid=False, tickfont=dict(color='#64748b')),
+        yaxis=dict(showgrid=True, gridcolor='#e2e8f0', ticksuffix='%', tickfont=dict(color='#64748b'))
+    )
+    st.plotly_chart(fig_typo, use_container_width=True)
+
 
 # ---------------------------------------------------------------------------
 # 9. PIED DE PAGE
