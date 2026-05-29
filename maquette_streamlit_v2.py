@@ -16,6 +16,169 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ---------------------------------------------------------------------------
+# CSS PERSONNALISÉ DÈS LE CHARGEMENT (Évite le flash sombre/clair)
+# ---------------------------------------------------------------------------
+st.markdown("""
+<style>
+/* Animation d'apparition fluide et élégante (Fade In & Slide Up) */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+/* Appliquer aux conteneurs de colonnes (liste & carte) pour une entrée en douceur */
+[data-testid="column"] {
+    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Override de style pour forcer l'interface principale en blanc et la barre latérale en blanc un peu plus sombre */
+.stApp {
+    background-color: #ffffff !important;
+}
+/* Forcer les textes généraux et titres de l'application en noir */
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp p, .stApp li, .stApp span:not(.prop-badge) {
+    color: #111827 !important;
+}
+/* Forcer le texte des onglets (tabs) en noir */
+button[data-baseweb="tab"] p, button[data-baseweb="tab"] span {
+    color: #111827 !important;
+}
+[data-testid="stSidebar"] {
+    background-color: #f1f5f9 !important; /* blanc un peu plus sombre (Slate 100) */
+    border-right: 1px solid #cbd5e1;
+}
+/* Forcer les textes et titres de la barre de filtres en noir */
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h4,
+[data-testid="stSidebar"] h5,
+[data-testid="stSidebar"] h6,
+[data-testid="stSidebar"] span {
+    color: #000000 !important;
+}
+
+/* Style des titres de section (h3) dans la barre de filtres (rectangles arrondis blancs avec ombre) */
+[data-testid="stSidebar"] h3 {
+    background-color: #ffffff !important;
+    color: #1e293b !important;
+    padding: 8px 12px !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06) !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    border-left: 4px solid #d4af37 !important; /* Ligne dorée premium sur le côté */
+    margin-top: 20px !important;
+    margin-bottom: 12px !important;
+}
+
+/* Forcer les étiquettes (pills) du multiselect en doré / gold avec texte noir et croix noire */
+div[data-baseweb="tag"], span[data-baseweb="tag"] {
+    background-color: #d4af37 !important;
+    color: #000000 !important;
+    border-radius: 4px !important;
+}
+div[data-baseweb="tag"] *, span[data-baseweb="tag"] * {
+    color: #000000 !important;
+    fill: #000000 !important;
+}
+
+/* Scrollable property list */
+.property-list {
+    max-height: 750px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+.property-list::-webkit-scrollbar { width: 6px; }
+.property-list::-webkit-scrollbar-thumb {
+    background: #ccc; border-radius: 3px;
+}
+
+/* Property card */
+.prop-card {
+    background: #fff;
+    border: 1px solid #e8e8e8;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.prop-card:hover {
+    box-shadow: 0 10px 25px rgba(0,0,0,0.08) !important;
+    border-color: #d4af37 !important;
+    transform: translateY(-2px) !important; /* Léger soulèvement moderne */
+}
+.prop-price {
+    font-size: 20px;
+    font-weight: 800;
+    color: #1a1a2e;
+    margin: 0;
+}
+.prop-price-m2 {
+    font-size: 13px;
+    font-weight: 600;
+    color: #888;
+    margin: 0 0 6px 0;
+}
+.prop-type {
+    font-size: 14px;
+    font-weight: 700;
+    color: #333;
+    margin: 4px 0 2px 0;
+}
+.prop-details {
+    font-size: 12.5px;
+    color: #666;
+    margin: 2px 0;
+    line-height: 1.5;
+}
+.prop-date {
+    font-size: 11px;
+    color: #aaa;
+    margin-top: 4px;
+}
+.prop-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    margin-right: 6px;
+}
+.badge-maison { background: #e67e22; }
+.badge-appart { background: #3498db; }
+
+/* Header bar style */
+.seloger-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 2px solid #f0f0f0;
+    margin-bottom: 16px;
+    background: transparent;
+}
+.seloger-count {
+    font-size: 18px;
+    font-weight: 800;
+    color: #000000 !important; /* Texte noir! */
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 # Palette DPE officielle
 DPE_COLORS = {
     "A": [39, 174, 96, 220],
@@ -419,148 +582,8 @@ if selected_id is not None:
         pass
 
 # ---------------------------------------------------------------------------
-# 5. CSS PERSONNALISÉ (Style SeLoger)
+# 5. CHARGEMENT ET CALCULS FINIS (Le CSS a été injecté au début pour fluidité)
 # ---------------------------------------------------------------------------
-st.markdown("""
-<style>
-/* Scrollable property list */
-.property-list {
-    max-height: 750px;
-    overflow-y: auto;
-    padding-right: 8px;
-}
-.property-list::-webkit-scrollbar { width: 6px; }
-.property-list::-webkit-scrollbar-thumb {
-    background: #ccc; border-radius: 3px;
-}
-
-/* Property card */
-.prop-card {
-    background: #fff;
-    border: 1px solid #e8e8e8;
-    border-radius: 10px;
-    padding: 16px;
-    margin-bottom: 12px;
-    transition: box-shadow 0.2s;
-    font-family: 'Inter', 'Segoe UI', sans-serif;
-}
-.prop-card:hover {
-    box-shadow: 0 4px 16px rgba(0,0,0,0.10);
-    border-color: #d0d0d0;
-}
-.prop-price {
-    font-size: 20px;
-    font-weight: 800;
-    color: #1a1a2e;
-    margin: 0;
-}
-.prop-price-m2 {
-    font-size: 13px;
-    font-weight: 600;
-    color: #888;
-    margin: 0 0 6px 0;
-}
-.prop-type {
-    font-size: 14px;
-    font-weight: 700;
-    color: #333;
-    margin: 4px 0 2px 0;
-}
-.prop-details {
-    font-size: 12.5px;
-    color: #666;
-    margin: 2px 0;
-    line-height: 1.5;
-}
-.prop-date {
-    font-size: 11px;
-    color: #aaa;
-    margin-top: 4px;
-}
-.prop-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 700;
-    color: #fff;
-    margin-right: 6px;
-}
-.badge-maison { background: #e67e22; }
-.badge-appart { background: #3498db; }
-
-/* Override de style pour forcer l'interface principale en blanc et la barre latérale en blanc un peu plus sombre */
-.stApp {
-    background-color: #ffffff !important;
-}
-/* Forcer les textes généraux et titres de l'application en noir */
-.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp p, .stApp li, .stApp span:not(.prop-badge) {
-    color: #111827 !important;
-}
-/* Forcer le texte des onglets (tabs) en noir */
-button[data-baseweb="tab"] p, button[data-baseweb="tab"] span {
-    color: #111827 !important;
-}
-[data-testid="stSidebar"] {
-    background-color: #f1f5f9 !important; /* blanc un peu plus sombre (Slate 100) */
-    border-right: 1px solid #cbd5e1;
-}
-/* Forcer les textes et titres de la barre de filtres en noir */
-[data-testid="stSidebar"] p,
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h4,
-[data-testid="stSidebar"] h5,
-[data-testid="stSidebar"] h6,
-[data-testid="stSidebar"] span {
-    color: #000000 !important;
-}
-
-/* Style des titres de section (h3) dans la barre de filtres (rectangles arrondis blancs avec ombre) */
-[data-testid="stSidebar"] h3 {
-    background-color: #ffffff !important;
-    color: #1e293b !important;
-    padding: 8px 12px !important;
-    border-radius: 8px !important;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06) !important;
-    font-size: 13px !important;
-    font-weight: 700 !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.5px !important;
-    border-left: 4px solid #d4af37 !important; /* Ligne dorée premium sur le côté */
-    margin-top: 20px !important;
-    margin-bottom: 12px !important;
-}
-
-/* Forcer les étiquettes (pills) du multiselect en doré / gold avec texte noir et croix noire */
-div[data-baseweb="tag"], span[data-baseweb="tag"] {
-    background-color: #d4af37 !important;
-    color: #000000 !important;
-    border-radius: 4px !important;
-}
-div[data-baseweb="tag"] *, span[data-baseweb="tag"] * {
-    color: #000000 !important;
-    fill: #000000 !important;
-}
-
-/* Header bar style */
-.seloger-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 0;
-    border-bottom: 2px solid #f0f0f0;
-    margin-bottom: 16px;
-    background: transparent;
-}
-.seloger-count {
-    font-size: 18px;
-    font-weight: 800;
-    color: #000000 !important; /* Texte noir! */
-}
-</style>
-""", unsafe_allow_html=True)
 
 nb_dpe = len(df_dpe_f)
 nb_dvf = len(df_dvf_f)
