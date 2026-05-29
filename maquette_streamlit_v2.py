@@ -27,21 +27,23 @@ DPE_COLORS = {
     "G": [192, 57, 43, 220],
 }
 
-# Palette de zones de prix (Cyberpunk / Synthwave)
-PRICE_THRESHOLDS = [100_000, 200_000, 350_000, 550_000]
+# Palette de prix par m² : Gris pur (peu cher) → Jaune (modéré) → Rouge (cher)
 PRICE_COLORS = [
-    [4, 217, 255, 200],    # Cyan (< 100k)
-    [104, 123, 235, 200],  # Soft Blue (100-200k)
-    [171, 52, 224, 200],   # Purple (200-350k)
-    [224, 30, 132, 200],   # Magenta (350-550k)
-    [255, 115, 0, 200],    # Orange (> 550k)
+    [140, 140, 140, 220],   # Gris pur — tiers inférieur (peu cher)
+    [230, 190, 10, 220],    # Jaune — tiers moyen (moyennement cher)
+    [220, 53, 69, 220],     # Rouge — tiers supérieur (cher)
 ]
 
-def price_color(val):
-    for i, thresh in enumerate(PRICE_THRESHOLDS):
-        if val < thresh:
-            return PRICE_COLORS[i]
-    return PRICE_COLORS[-1]
+def price_color(prix_m2, seuil_bas, seuil_haut):
+    """Retourne la couleur d'un bâtiment selon son prix au m² (terciles)."""
+    if pd.isna(prix_m2):
+        return [120, 120, 120, 100]
+    if prix_m2 < seuil_bas:
+        return PRICE_COLORS[0]
+    elif prix_m2 < seuil_haut:
+        return PRICE_COLORS[1]
+    else:
+        return PRICE_COLORS[2]
 
 
 def _make_building_polygon(lon, lat, type_local="Appartement", seed=None):
@@ -271,7 +273,16 @@ def load_dvf_geocoded():
     merged["prix_m2_fmt"] = merged["prix_m2"].apply(
         lambda x: f"{x:,.0f} EUR/m2".replace(",", " ") if pd.notna(x) else "N/A"
     )
-    merged["color_prix"] = merged["valeur_fonciere"].apply(price_color)
+    # Seuils dynamiques : terciles (33% / 66%) pour répartir en 3 groupes égaux
+    prix_m2_valid = merged["prix_m2"].dropna()
+    seuil_bas = prix_m2_valid.quantile(0.33)
+    seuil_haut = prix_m2_valid.quantile(0.66)
+    merged["color_prix"] = merged["prix_m2"].apply(
+        lambda x: price_color(x, seuil_bas, seuil_haut)
+    )
+    # Stocker les seuils pour les légendes
+    merged.attrs["seuil_bas"] = seuil_bas
+    merged.attrs["seuil_haut"] = seuil_haut
 
     # Couleur par type de bien
     merged["color_type"] = merged["type_local"].map({
@@ -316,28 +327,44 @@ st.sidebar.title("Filtres d'Analyse")
 st.sidebar.markdown("Affinez votre exploration de la métropole nantaise.")
 
 st.sidebar.markdown("### Performance Energetique (DPE)")
-dpe_choix = st.sidebar.multiselect(
-    "Etiquette DPE :",
-    options=["A", "B", "C", "D", "E", "F", "G"],
-    default=["A", "B", "C", "D", "E"],
-)
+with st.sidebar.expander("Choisir les étiquettes DPE...", expanded=False):
+    select_all_dpe = st.checkbox("Tout cocher (DPE)", value=False, key="dpe_all_cb")
+    dpe_options = ["A", "B", "C", "D", "E", "F", "G"]
+    dpe_choix = []
+    for opt in dpe_options:
+        # Par défaut, coche A à E si "Tout cocher" est décoché
+        default_val = select_all_dpe or (opt in ["A", "B", "C", "D", "E"])
+        checked = st.checkbox(f"DPE {opt}", value=default_val, key=f"dpe_opt_{opt}")
+        if checked:
+            dpe_choix.append(opt)
 
-st.sidebar.markdown("### Surface habitable")
-surf_min, surf_max = st.sidebar.slider(
-    "Surface (m2) :", min_value=10, max_value=400, value=(20, 200), step=5
-)
+st.sidebar.markdown("### Surface habitable (m²)")
+col_surf1, col_surf2 = st.sidebar.columns(2)
+surf_min = col_surf1.number_input("Min :", min_value=10, max_value=400, value=20, step=5)
+surf_max = col_surf2.number_input("Max :", min_value=10, max_value=400, value=200, step=5)
 
 st.sidebar.markdown("### Type de batiment")
 types_dispo = sorted(df_dpe["type_batiment"].dropna().unique().tolist())
-type_batiment_choix = st.sidebar.multiselect(
-    "Type :", options=types_dispo, default=types_dispo
-)
+with st.sidebar.expander("Choisir les types...", expanded=False):
+    select_all_types = st.checkbox("Tout cocher (Types)", value=True, key="types_all_cb")
+    type_batiment_choix = []
+    for opt in types_dispo:
+        checked = st.checkbox(opt, value=select_all_types, key=f"type_opt_{opt}")
+        if checked:
+            type_batiment_choix.append(opt)
 
-st.sidebar.markdown("### Valeur fonciere DVF")
-prix_min, prix_max = st.sidebar.slider(
-    "Fourchette de prix (EUR) :",
-    min_value=20_000, max_value=3_000_000,
-    value=(80_000, 800_000), step=10_000, format="%d EUR",
+st.sidebar.markdown("### Valeur foncière DVF (EUR)")
+col_prix1, col_prix2 = st.sidebar.columns(2)
+prix_min = col_prix1.number_input("Prix Min :", min_value=10_000, max_value=5_000_000, value=80_000, step=10_000)
+prix_max = col_prix2.number_input("Prix Max :", min_value=10_000, max_value=5_000_000, value=800_000, step=10_000)
+
+st.sidebar.markdown("### Densité d'affichage")
+max_points = st.sidebar.slider(
+    "Nombre max de biens sur la carte :",
+    min_value=10,
+    max_value=800,
+    value=150,
+    step=10,
 )
 
 st.sidebar.markdown("---")
@@ -345,7 +372,7 @@ st.sidebar.subheader("Style de carte")
 map_style_name = st.sidebar.selectbox(
     "Fond de carte :",
     options=["Sombre", "Clair", "Coloré"],
-    index=1,  # Par défaut "Clair" pour aller avec le thème clair
+    index=2,  # Par défaut "Coloré"
 )
 MAP_STYLES = {
     "Sombre": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
@@ -374,47 +401,412 @@ df_dvf_f = df_dvf[
     df_dvf["valeur_fonciere"].between(prix_min, prix_max)
 ].copy()
 
-# ---------------------------------------------------------------------------
-# 5. EN-TETE & KPI
-# ---------------------------------------------------------------------------
-st.title("Observatoire Foncier & Energetique – Nantes")
-st.markdown(
-    "Exploration des **données réelles** : DPE existants, transactions DVF 2025 "
-    "géocodées via la BAN, et réseau de transport de Loire-Atlantique."
-)
+# Limitation du nombre de points à afficher
+df_dvf_f = df_dvf_f.head(max_points)
 
-col1, col2, col3, col4, col5 = st.columns(5)
+# Gestion de la sélection d'un bien via les paramètres de requête
+selected_id = st.query_params.get("selected_id")
+selected_idx = None
+selected_row = None
+
+if selected_id is not None:
+    try:
+        selected_idx = int(selected_id)
+        # S'assurer que le bien sélectionné est dans le dataset filtré
+        if selected_idx in df_dvf_f.index:
+            selected_row = df_dvf_f.loc[selected_idx]
+    except ValueError:
+        pass
+
+# ---------------------------------------------------------------------------
+# 5. CSS PERSONNALISÉ (Style SeLoger)
+# ---------------------------------------------------------------------------
+st.markdown("""
+<style>
+/* Scrollable property list */
+.property-list {
+    max-height: 750px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+.property-list::-webkit-scrollbar { width: 6px; }
+.property-list::-webkit-scrollbar-thumb {
+    background: #ccc; border-radius: 3px;
+}
+
+/* Property card */
+.prop-card {
+    background: #fff;
+    border: 1px solid #e8e8e8;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: box-shadow 0.2s;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+}
+.prop-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+    border-color: #d0d0d0;
+}
+.prop-price {
+    font-size: 20px;
+    font-weight: 800;
+    color: #1a1a2e;
+    margin: 0;
+}
+.prop-price-m2 {
+    font-size: 13px;
+    font-weight: 600;
+    color: #888;
+    margin: 0 0 6px 0;
+}
+.prop-type {
+    font-size: 14px;
+    font-weight: 700;
+    color: #333;
+    margin: 4px 0 2px 0;
+}
+.prop-details {
+    font-size: 12.5px;
+    color: #666;
+    margin: 2px 0;
+    line-height: 1.5;
+}
+.prop-date {
+    font-size: 11px;
+    color: #aaa;
+    margin-top: 4px;
+}
+.prop-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    margin-right: 6px;
+}
+.badge-maison { background: #e67e22; }
+.badge-appart { background: #3498db; }
+
+/* Override de style pour forcer l'interface principale en blanc et la barre latérale en blanc un peu plus sombre */
+.stApp {
+    background-color: #ffffff !important;
+}
+/* Forcer les textes généraux et titres de l'application en noir */
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp p, .stApp li, .stApp span:not(.prop-badge) {
+    color: #111827 !important;
+}
+/* Forcer le texte des onglets (tabs) en noir */
+button[data-baseweb="tab"] p, button[data-baseweb="tab"] span {
+    color: #111827 !important;
+}
+[data-testid="stSidebar"] {
+    background-color: #f1f5f9 !important; /* blanc un peu plus sombre (Slate 100) */
+    border-right: 1px solid #cbd5e1;
+}
+/* Forcer les textes et titres de la barre de filtres en noir */
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h4,
+[data-testid="stSidebar"] h5,
+[data-testid="stSidebar"] h6,
+[data-testid="stSidebar"] span {
+    color: #000000 !important;
+}
+
+/* Style des titres de section (h3) dans la barre de filtres (rectangles arrondis blancs avec ombre) */
+[data-testid="stSidebar"] h3 {
+    background-color: #ffffff !important;
+    color: #1e293b !important;
+    padding: 8px 12px !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06) !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    border-left: 4px solid #d4af37 !important; /* Ligne dorée premium sur le côté */
+    margin-top: 20px !important;
+    margin-bottom: 12px !important;
+}
+
+/* Forcer les étiquettes (pills) du multiselect en doré / gold avec texte noir et croix noire */
+div[data-baseweb="tag"], span[data-baseweb="tag"] {
+    background-color: #d4af37 !important;
+    color: #000000 !important;
+    border-radius: 4px !important;
+}
+div[data-baseweb="tag"] *, span[data-baseweb="tag"] * {
+    color: #000000 !important;
+    fill: #000000 !important;
+}
+
+/* Header bar style */
+.seloger-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 2px solid #f0f0f0;
+    margin-bottom: 16px;
+    background: transparent;
+}
+.seloger-count {
+    font-size: 18px;
+    font-weight: 800;
+    color: #000000 !important; /* Texte noir! */
+}
+</style>
+""", unsafe_allow_html=True)
+
 nb_dpe = len(df_dpe_f)
-surf_med = df_dpe_f["surface_habitable_logement"].median()
-dpe_mode_s = df_dpe_f["etiquette_dpe"].mode()
-dpe_maj = dpe_mode_s.iloc[0] if not dpe_mode_s.empty else "N/A"
 nb_dvf = len(df_dvf_f)
-prix_med = df_dvf_f["valeur_fonciere"].median()
 
-col1.metric("Logements DPE", f"{nb_dpe:,}".replace(",", " "))
-col2.metric("Surface médiane", f"{surf_med:.0f} m2" if nb_dpe > 0 else "N/A")
-col3.metric("DPE majoritaire", dpe_maj)
-col4.metric("Ventes DVF", f"{nb_dvf:,}".replace(",", " "))
-col5.metric(
-    "Prix médian",
-    f"{prix_med:,.0f} EUR".replace(",", " ") if nb_dvf > 0 else "N/A",
+# ---------------------------------------------------------------------------
+# 6. VUE PRINCIPALE – STYLE SELOGER (Liste + Carte)
+# ---------------------------------------------------------------------------
+
+# En-tête style SeLoger
+st.markdown(
+    f"<div class='seloger-header'>"
+    f"<span class='seloger-count'>"
+    f"{nb_dvf:,} transactions immobilières – Nantes, disponibles sur la carte"
+    f"</span></div>".replace(",", " "),
+    unsafe_allow_html=True,
 )
+
+# ── Layout principal : Liste à gauche, Carte à droite ──
+col_list, col_map = st.columns([2, 3], gap="medium")
+
+# === COLONNE GAUCHE : Liste des biens ===
+with col_list:
+    # Tri
+    tri_option = st.selectbox(
+        "Tri par :",
+        ["Prix croissant", "Prix décroissant", "Prix/m² croissant",
+         "Prix/m² décroissant", "Surface croissante", "Surface décroissante"],
+        index=1,
+        label_visibility="collapsed",
+    )
+    tri_map = {
+        "Prix croissant": ("valeur_fonciere", True),
+        "Prix décroissant": ("valeur_fonciere", False),
+        "Prix/m² croissant": ("prix_m2", True),
+        "Prix/m² décroissant": ("prix_m2", False),
+        "Surface croissante": ("surface_m2", True),
+        "Surface décroissante": ("surface_m2", False),
+    }
+    sort_col, sort_asc = tri_map[tri_option]
+    df_sorted = df_dvf_f.sort_values(sort_col, ascending=sort_asc).head(80)
+
+    # Générer les cartes HTML sans retours à la ligne ni indentations pour éviter les blocs de code markdown brut
+    cards_html = "<div class='property-list'>"
+    for idx, row in df_sorted.iterrows():
+        type_local = row.get("type_local", "")
+        badge_cls = "badge-maison" if type_local == "Maison" else "badge-appart"
+
+        valeur = row.get("valeur_fonciere", 0)
+        prix_m2_val = row.get("prix_m2", 0)
+        surface = row.get("surface_m2", 0)
+        pieces = row.get("nb_pieces", "")
+        date_mut = row.get("date_mutation", "")
+
+        val_str = f"{valeur:,.0f} €".replace(",", " ") if pd.notna(valeur) else "N/A"
+        pm2_str = f"{prix_m2_val:,.0f} €/m²".replace(",", " ") if pd.notna(prix_m2_val) else ""
+        surf_str = f"{surface:.0f} m²" if pd.notna(surface) else ""
+        pcs_str = f"{int(pieces)} pièce{'s' if pieces > 1 else ''}" if pd.notna(pieces) and pieces > 0 else ""
+
+        details_parts = [s for s in [surf_str, pcs_str] if s]
+        details_str = " · ".join(details_parts)
+
+        # Style de surbrillance si la carte est cliquée/sélectionnée (doré / gold)
+        is_selected = (idx == selected_idx)
+        card_style = "border: 2px solid #d4af37; box-shadow: 0 4px 16px rgba(212, 175, 55, 0.35); background: #fdfdfd;" if is_selected else ""
+
+        # Construction sur une seule ligne continue pour immuniser contre le bug du markdown code block
+        card_html = (
+            f"<a href='?selected_id={idx}' target='_self' style='text-decoration: none; color: inherit;'>"
+            f"<div class='prop-card' style='{card_style}'>"
+            f"<p class='prop-price'>{val_str}</p>"
+            f"<p class='prop-price-m2'>{pm2_str}</p>"
+            f"<p class='prop-type'>"
+            f"<span class='prop-badge {badge_cls}'>{type_local}</span>"
+            f" {type_local} à vendre"
+            f"</p>"
+            f"<p class='prop-details'>{details_str}</p>"
+            f"<p class='prop-date'>Vente du {date_mut}</p>"
+            f"</div>"
+            f"</a>"
+        )
+        cards_html += card_html
+    cards_html += "</div>"
+    st.markdown(cards_html, unsafe_allow_html=True)
+
+# === COLONNE DROITE : Carte avec marqueurs rouges ===
+with col_map:
+    # Recentrage dynamique sur le bien sélectionné si disponible
+    if selected_row is not None:
+        VIEW_STATE_SL = pdk.ViewState(
+            latitude=selected_row["lat"],
+            longitude=selected_row["lon"],
+            zoom=15,
+            pitch=0,
+            bearing=0
+        )
+    else:
+        VIEW_STATE_SL = pdk.ViewState(
+            latitude=47.2184, longitude=-1.5536, zoom=12, pitch=0, bearing=0
+        )
+
+    # Préparer les labels de prix pour les marqueurs
+    df_map = df_dvf_f.copy()
+    df_map["price_label"] = df_map["valeur_fonciere"].apply(
+        lambda x: f"{x/1000:,.0f}k €".replace(",", " ") if pd.notna(x) and x >= 1000 else (
+            f"{x:,.0f} €".replace(",", " ") if pd.notna(x) else ""
+        )
+    )
+
+    # Halo de surbrillance pour le point sélectionné (gros cercle doré brillant en arrière-plan)
+    layer_selected = pdk.Layer(
+        "ScatterplotLayer",
+        data=pd.DataFrame([selected_row]) if selected_row is not None else pd.DataFrame(),
+        get_position="[lon, lat]",
+        get_radius=110,
+        radius_min_pixels=18,
+        radius_max_pixels=35,
+        get_fill_color=[212, 175, 55, 145],  # Doré (gold) transparent pour l'effet de halo
+        get_line_color=[255, 255, 255, 255],
+        line_width_min_pixels=2,
+        pickable=False,
+    )
+
+    # Marqueurs de couleur selon le prix (cercles)
+    layer_markers = pdk.Layer(
+        "ScatterplotLayer",
+        data=df_map,
+        get_position="[lon, lat]",
+        get_radius=40,
+        radius_min_pixels=6,
+        radius_max_pixels=16,
+        get_fill_color="color_prix",
+        get_line_color=[255, 255, 255, 225],
+        line_width_min_pixels=1,
+        pickable=True,
+        auto_highlight=True,
+    )
+
+    # Labels de prix au-dessus des marqueurs
+    layer_text = pdk.Layer(
+        "TextLayer",
+        data=df_map,
+        get_position="[lon, lat]",
+        get_text="price_label",
+        get_size=12,
+        get_color="color_prix",
+        get_angle=0,
+        get_text_anchor='"middle"',
+        get_alignment_baseline='"bottom"',
+        get_pixel_offset="[0, -14]",
+        font_family='"Inter", "Segoe UI", sans-serif',
+        font_weight=700,
+        pickable=False,
+    )
+
+    # Couche transport (optionnelle)
+    transport_layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=df_transport if show_transport else pd.DataFrame(),
+        get_position="[lon, lat]",
+        get_radius=80,
+        radius_min_pixels=5,
+        radius_max_pixels=18,
+        get_fill_color=[52, 152, 219, 220],
+        get_line_color=[255, 255, 255, 160],
+        line_width_min_pixels=1,
+        pickable=True,
+        auto_highlight=True,
+    )
+
+    tooltip_map = {
+        "html": (
+            "<div style='font-family:Inter,sans-serif;padding:10px 14px;"
+            "background:#fff;border-radius:8px;color:#1a1a2e;"
+            "box-shadow:0 4px 20px rgba(0,0,0,.15);max-width:260px;"
+            "border:1px solid #e0e0e0;'>"
+            "<div style='font-size:18px;font-weight:900;color:#1a1a2e;'>"
+            "{valeur_fmt}</div>"
+            "<div style='font-size:12px;color:#888;margin-bottom:6px;'>"
+            "{prix_m2_fmt}</div>"
+            "<hr style='border:0;height:1px;background:#eee;margin:6px 0;'>"
+            "<div style='font-size:13px;font-weight:700;'>{type_local}</div>"
+            "<div style='font-size:12px;color:#666;'>"
+            "{surface_m2} m² · {nb_pieces} pièces</div>"
+            "<div style='font-size:11px;color:#aaa;margin-top:4px;'>"
+            "Vente du {date_mutation}</div>"
+            "</div>"
+        ),
+        "style": {"backgroundColor": "transparent", "border": "none", "padding": "0"},
+    }
+
+    # Légende explicative des prix (texte en noir et police Inter)
+    seuil_bas = df_dvf.attrs.get("seuil_bas", 3000)
+    seuil_haut = df_dvf.attrs.get("seuil_haut", 4500)
+    st.markdown(
+        f"""
+        <div style='display: flex; gap: 20px; justify-content: center; font-size: 13px; font-weight: 700; margin-bottom: 12px; font-family: "Inter", "Segoe UI", sans-serif; color: #000000;'>
+            <div style='display: flex; align-items: center; gap: 6px;'>
+                <span style='display: inline-block; width: 12px; height: 12px; background: rgb(140, 140, 140); border-radius: 50%; border: 1px solid rgba(0,0,0,0.15);'></span>
+                <span style='color: #000000;'>Peu cher (&lt; {seuil_bas:,.0f} €/m²)</span>
+            </div>
+            <div style='display: flex; align-items: center; gap: 6px;'>
+                <span style='display: inline-block; width: 12px; height: 12px; background: rgb(230, 190, 10); border-radius: 50%; border: 1px solid rgba(0,0,0,0.15);'></span>
+                <span style='color: #000000;'>Moyen ({seuil_bas:,.0f} - {seuil_haut:,.0f} €/m²)</span>
+            </div>
+            <div style='display: flex; align-items: center; gap: 6px;'>
+                <span style='display: inline-block; width: 12px; height: 12px; background: rgb(220, 53, 69); border-radius: 50%; border: 1px solid rgba(0,0,0,0.15);'></span>
+                <span style='color: #000000;'>Cher (&gt; {seuil_haut:,.0f} €/m²)</span>
+            </div>
+        </div>
+        """.replace(",", " "),
+        unsafe_allow_html=True
+    )
+
+    st.pydeck_chart(
+        pdk.Deck(
+            map_style="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
+            initial_view_state=VIEW_STATE_SL,
+            layers=[layer_selected, layer_markers, layer_text, transport_layer],
+            tooltip=tooltip_map,
+        ),
+        use_container_width=True,
+    )
+
+
+# Stats résumé sous la carte
+st.markdown("")
+c1, c2, c3, c4 = st.columns(4)
+surf_med = df_dpe_f["surface_habitable_logement"].median()
+prix_med = df_dvf_f["valeur_fonciere"].median()
+c1.metric("Transactions DVF", f"{nb_dvf:,}".replace(",", " "))
+c2.metric("Prix médian", f"{prix_med:,.0f} €".replace(",", " ") if nb_dvf > 0 else "N/A")
+c3.metric("Prix/m² médian", f"{df_dvf_f['prix_m2'].median():,.0f} €/m²".replace(",", " ") if nb_dvf > 0 else "N/A")
+c4.metric("Surface médiane", f"{df_dvf_f['surface_m2'].median():.0f} m²" if nb_dvf > 0 else "N/A")
 
 st.divider()
 
 # ---------------------------------------------------------------------------
-# 6. CARTOGRAPHIE PYDECK
+# 7. ANALYSE DPE (Onglets secondaires)
 # ---------------------------------------------------------------------------
-st.subheader("Cartographie interactive (PyDeck)")
+st.subheader("🏢 Analyse Énergétique (DPE)")
 
-VIEW_STATE_3D = pdk.ViewState(
-    latitude=47.2184, longitude=-1.5536, zoom=12.2, pitch=50, bearing=10
-)
 VIEW_STATE_2D = pdk.ViewState(
     latitude=47.2184, longitude=-1.5536, zoom=12.5, pitch=0, bearing=0
 )
 
-# --- Tooltip DPE ---
+# Tooltip DPE
 tooltip_dpe = {
     "html": (
         "<div style='font-family:Inter,sans-serif;padding:12px;"
@@ -442,224 +834,15 @@ tooltip_dpe = {
     "style": {"backgroundColor": "transparent", "border": "none", "padding": "0"},
 }
 
-# --- Tooltip DVF prix ---
-tooltip_dvf_prix = {
-    "html": (
-        "<div style='font-family:Inter,sans-serif;padding:12px;"
-        "background:rgba(10,15,25,0.97);border-radius:10px;"
-        "border:1px solid rgba(255,255,255,0.15);color:#fff;"
-        "box-shadow:0 6px 30px rgba(0,0,0,.6);max-width:270px;'>"
-        "<div style='font-size:10px;text-transform:uppercase;color:#7fa5c8;"
-        "margin-bottom:6px;font-weight:700;'>Transaction DVF 2025</div>"
-        "<div style='font-size:22px;font-weight:900;color:#2ecc71;margin-bottom:4px;'>"
-        "{valeur_fmt}</div>"
-        "<div style='font-size:13px;color:#f1c40f;font-weight:700;margin-bottom:8px;'>"
-        "{prix_m2_fmt}</div>"
-        "<hr style='border:0;height:1px;background:rgba(255,255,255,.1);margin:6px 0;'>"
-        "<table style='font-size:12px;width:100%;'>"
-        "<tr><td style='color:#a0aec0;'>Type :</td>"
-        "<td style='font-weight:700;text-align:right;'>{type_local}</td></tr>"
-        "<tr><td style='color:#a0aec0;'>Surface :</td>"
-        "<td style='font-weight:700;text-align:right;'>{surface_m2} m2</td></tr>"
-        "<tr><td style='color:#a0aec0;'>Pieces :</td>"
-        "<td style='font-weight:700;text-align:right;'>{nb_pieces}</td></tr>"
-        "<tr><td style='color:#a0aec0;'>Date vente :</td>"
-        "<td style='font-weight:600;text-align:right;font-size:11px;'>{date_mutation}</td></tr>"
-        "</table></div>"
-    ),
-    "style": {"backgroundColor": "transparent", "border": "none", "padding": "0"},
-}
-
-# Couche transport
-transport_layer = pdk.Layer(
-    "ScatterplotLayer",
-    data=df_transport if show_transport else pd.DataFrame(),
-    get_position="[lon, lat]",
-    get_radius=80,
-    radius_min_pixels=5,
-    radius_max_pixels=18,
-    get_fill_color=[52, 152, 219, 220],
-    get_line_color=[255, 255, 255, 160],
-    line_width_min_pixels=1,
-    pickable=True,
-    auto_highlight=True,
-)
-
-if nb_dpe > 0 or nb_dvf > 0:
-    tab_prix2d, tab_zones, tab_dpe2d_bat, tab_dpe2d, tab_heat = st.tabs([
-        "🏠 Prix par bâtiment (DVF)",
-        "🗺️ Zones de prix",
+if nb_dpe > 0:
+    tab_dpe_bat, tab_dpe_perf, tab_dpe_heat = st.tabs([
         "🏢 DPE par bâtiment",
         "⚡ Performance Énergétique",
         "🔥 Densité Énergétique",
     ])
 
-    # =========================================================
-    # ONGLET : Prix par bâtiment 2D (DVF géocodé BAN)
-    # =========================================================
-    with tab_prix2d:
-        st.markdown("##### Prix immobiliers – Transactions DVF 2025 (géocodées via BAN)")
-        st.markdown(
-            "Chaque **surface colorée** représente une **vente réelle** de maison ou d'appartement à Nantes en 2025. "
-            "La **couleur** indique la zone de prix :"
-        )
-        # Légende zones de prix
-        leg = st.columns(5)
-        labels = ["< 100 k EUR", "100–200 k", "200–350 k", "350–550 k", "> 550 k"]
-        css_colors = ["#04d9ff", "#687beb", "#ab34e0", "#e01e84", "#ff7300"]
-        for col_l, label, color in zip(leg, labels, css_colors):
-            col_l.markdown(
-                f"<span style='display:inline-block;width:14px;height:14px;"
-                f"background:{color};border-radius:3px;margin-right:5px;'></span>{label}",
-                unsafe_allow_html=True,
-            )
-        st.markdown("")
-
-        if nb_dvf > 0:
-            df_hm = df_dvf_f.dropna(subset=["valeur_fonciere"]).copy()
-            layer_zones_prix = pdk.Layer(
-                "HexagonLayer",
-                data=df_hm,
-                get_position="[lon, lat]",
-                get_weight="valeur_fonciere",
-                radius=150,
-                elevation_scale=0,
-                extruded=False,
-                color_range=[
-                    [4, 217, 255, 120],
-                    [104, 123, 235, 120],
-                    [171, 52, 224, 120],
-                    [224, 30, 132, 120],
-                    [255, 115, 0, 120],
-                ],
-                pickable=True,
-                auto_highlight=True,
-            )
-
-            layer_dots_prix = pdk.Layer(
-                "ScatterplotLayer",
-                data=df_dvf_f,
-                get_position="[lon, lat]",
-                get_radius=8,
-                radius_min_pixels=1,
-                radius_max_pixels=12,
-                get_fill_color="color_prix",
-                pickable=True,
-                auto_highlight=True,
-                opacity=1.0,
-            )
-            st.pydeck_chart(
-                pdk.Deck(
-                    map_style=map_style,
-                    initial_view_state=VIEW_STATE_2D,
-                    layers=[layer_zones_prix, layer_dots_prix, transport_layer],
-                    tooltip=tooltip_dvf_prix,
-                )
-            )
-
-            # Stats rapides en bas de l'onglet
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Transactions affichées", f"{nb_dvf:,}".replace(",", " "))
-            c2.metric("Prix médian", f"{df_dvf_f['valeur_fonciere'].median():,.0f} EUR".replace(",", " "))
-            c3.metric("Prix/m2 médian", f"{df_dvf_f['prix_m2'].median():,.0f} EUR/m2".replace(",", " "))
-            c4.metric("Surface médiane", f"{df_dvf_f['surface_m2'].median():.0f} m2")
-
-            # Distribution des prix
-            st.markdown("**Distribution des prix de vente**")
-            price_dist = df_dvf_f["valeur_fonciere"].dropna()
-            bins = [0, 100_000, 200_000, 350_000, 550_000, 1_000_000, 3_000_000]
-            labels_b = ["<100k", "100-200k", "200-350k", "350-550k", "550k-1M", ">1M"]
-            price_cat = pd.cut(price_dist, bins=bins, labels=labels_b)
-            dist_df = price_cat.value_counts().reindex(labels_b).fillna(0)
-            st.bar_chart(dist_df, color="#2ecc71")
-        else:
-            st.warning("Aucune transaction DVF ne correspond à vos filtres de prix.")
-
-    # =========================================================
-    # ONGLET : Zones de prix (Carte de chaleur par zone)
-    # =========================================================
-    with tab_zones:
-        st.markdown("##### Zones de prix – Carte de chaleur immobilière")
-        st.markdown(
-            "Cette carte agrege les transactions DVF en **zones colorées** pour visualiser "
-            "les quartiers les plus chers (🔴 rouge) et les plus abordables (🟢 vert). "
-            "Survolez une zone pour voir le prix moyen."
-        )
-
-        if nb_dvf > 0:
-            # Agrégation par Hexagones (zones)
-            df_hm = df_dvf_f.dropna(subset=["prix_m2"]).copy()
-            layer_zones = pdk.Layer(
-                "HexagonLayer",
-                data=df_hm,
-                get_position="[lon, lat]",
-                get_weight="prix_m2",
-                radius=150,  # 150 mètres de rayon par zone (rond/hexagone)
-                elevation_scale=0,
-                extruded=False,
-                color_range=[
-                    [4, 217, 255, 120],
-                    [104, 123, 235, 120],
-                    [171, 52, 224, 120],
-                    [224, 30, 132, 120],
-                    [255, 115, 0, 120],
-                ],
-                pickable=True,
-                auto_highlight=True,
-            )
-
-            # Couche de points (devient visible au zoom)
-            layer_dots = pdk.Layer(
-                "ScatterplotLayer",
-                data=df_dvf_f,
-                get_position="[lon, lat]",
-                get_radius=8,
-                radius_min_pixels=1,   # Quasi invisible quand dézoomé
-                radius_max_pixels=12,  # Bien visible quand on zoom
-                get_fill_color="color_prix",
-                pickable=True,
-                auto_highlight=True,
-                opacity=1.0,
-            )
-
-            st.pydeck_chart(
-                pdk.Deck(
-                    map_style=map_style,
-                    initial_view_state=VIEW_STATE_2D,
-                    layers=[layer_zones, layer_dots, transport_layer],
-                    tooltip=tooltip_dvf_prix,
-                )
-            )
-
-            # Légende
-            leg2 = st.columns(5)
-            labels2 = ["Abordable", "Modéré", "Moyen", "Élevé", "Très cher"]
-            colors2 = ["#04d9ff", "#687beb", "#ab34e0", "#e01e84", "#ff7300"]
-            for col_l, label, color in zip(leg2, labels2, colors2):
-                col_l.markdown(
-                    f"<span style='display:inline-block;width:14px;height:14px;"
-                    f"background:{color};border-radius:50%;margin-right:5px;'></span>{label}",
-                    unsafe_allow_html=True,
-                )
-
-            # Stats
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Prix/m² médian", f"{df_hm['prix_m2'].median():,.0f} EUR/m²".replace(",", " "))
-            c2.metric("Prix/m² min", f"{df_hm['prix_m2'].min():,.0f} EUR/m²".replace(",", " "))
-            c3.metric("Prix/m² max", f"{df_hm['prix_m2'].max():,.0f} EUR/m²".replace(",", " "))
-        else:
-            st.warning("Aucune transaction DVF ne correspond à vos filtres de prix.")
-
-    # =========================================================
-    # TAB : Vue 2D DPE par bâtiment
-    # =========================================================
-    with tab_dpe2d_bat:
+    with tab_dpe_bat:
         st.markdown("##### DPE par bâtiment – Couleur = Étiquette énergétique")
-        st.markdown(
-            "Chaque **surface colorée** est un **logement diagnostiqué**. "
-            "La **couleur** correspond à l'étiquette DPE (A=vert à G=rouge)."
-        )
-        # Légende DPE
         leg_dpe = st.columns(7)
         dpe_labels = ["A", "B", "C", "D", "E", "F", "G"]
         dpe_css = ["#27ae60", "#2ecc71", "#a4c400", "#f1c40f", "#e67e22", "#d35400", "#c0392b"]
@@ -669,162 +852,90 @@ if nb_dpe > 0 or nb_dvf > 0:
                 f"background:{color};border-radius:3px;margin-right:5px;'></span>DPE {label}",
                 unsafe_allow_html=True,
             )
+        df_hm = df_dpe_f.dropna(subset=["dpe_score"]).copy()
+        layer_zones_dpe = pdk.Layer(
+            "HeatmapLayer", data=df_hm,
+            get_position="[lon, lat]", get_weight="dpe_score",
+            radiusPixels=80, intensity=1.2, threshold=0.05,
+            color_range=[
+                [192, 57, 43], [230, 126, 34], [241, 196, 15],
+                [164, 196, 0], [39, 174, 96],
+            ],
+            pickable=False, opacity=0.6,
+        )
+        layer_dots_dpe = pdk.Layer(
+            "ScatterplotLayer", data=df_dpe_f,
+            get_position="[lon, lat]", get_radius=8,
+            radius_min_pixels=1, radius_max_pixels=12,
+            get_fill_color="color_dpe", pickable=True, auto_highlight=True, opacity=1.0,
+        )
+        st.pydeck_chart(pdk.Deck(
+            map_style=map_style, initial_view_state=VIEW_STATE_2D,
+            layers=[layer_zones_dpe, layer_dots_dpe], tooltip=tooltip_dpe,
+        ))
 
-        if nb_dpe > 0:
-            df_hm = df_dpe_f.dropna(subset=["dpe_score"]).copy()
-            layer_zones_dpe = pdk.Layer(
-                "HexagonLayer",
-                data=df_hm,
-                get_position="[lon, lat]",
-                get_weight="dpe_score",
-                radius=150,
-                elevation_scale=0,
-                extruded=False,
-                color_range=[
-                    [192, 57, 43, 120],     # Rouge (1 = G)
-                    [230, 126, 34, 120],    # Orange
-                    [241, 196, 15, 120],    # Jaune
-                    [164, 196, 0, 120],     # Lime
-                    [39, 174, 96, 120],     # Vert (7 = A)
-                ],
-                pickable=True,
-                auto_highlight=True,
-            )
-
-            layer_dots_dpe = pdk.Layer(
-                "ScatterplotLayer",
-                data=df_dpe_f,
-                get_position="[lon, lat]",
-                get_radius=8,
-                radius_min_pixels=1,
-                radius_max_pixels=12,
-                get_fill_color="color_dpe",
-                pickable=True,
-                auto_highlight=True,
-                opacity=1.0,
-            )
-
-            st.pydeck_chart(
-                pdk.Deck(
-                    map_style=map_style,
-                    initial_view_state=VIEW_STATE_2D,
-                    layers=[layer_zones_dpe, layer_dots_dpe, transport_layer],
-                    tooltip=tooltip_dpe,
-                )
-            )
-        else:
-            st.warning("Aucun logement DPE ne correspond à vos filtres.")
-
-    # =========================================================
-    # TAB : Vue 2D DPE
-    # =========================================================
-    with tab_dpe2d:
+    with tab_dpe_perf:
         st.markdown("##### Répartition géographique des performances énergétiques")
         if nb_dpe > 0:
             df_hm = df_dpe_f.dropna(subset=["conso_5_usages_ep"]).copy()
-            layer_zones_conso = pdk.Layer(
-                "HexagonLayer",
-                data=df_hm,
-                get_position="[lon, lat]",
-                get_weight="conso_5_usages_ep",
-                radius=150,
-                elevation_scale=0,
-                extruded=False,
+            layer_conso = pdk.Layer(
+                "HeatmapLayer", data=df_hm,
+                get_position="[lon, lat]", get_weight="conso_5_usages_ep",
+                radiusPixels=80, intensity=1.2, threshold=0.05,
                 color_range=[
-                    [39, 174, 96, 120],     # Vert (faible conso)
-                    [164, 196, 0, 120],
-                    [241, 196, 15, 120],
-                    [230, 126, 34, 120],
-                    [192, 57, 43, 120],     # Rouge (forte conso)
+                    [39, 174, 96], [164, 196, 0], [241, 196, 15],
+                    [230, 126, 34], [192, 57, 43],
                 ],
-                pickable=True,
-                auto_highlight=True,
+                pickable=False, opacity=0.6,
             )
-
             layer_dots_conso = pdk.Layer(
-                "ScatterplotLayer",
-                data=df_dpe_f,
-                get_position="[lon, lat]",
-                get_radius=8,
-                radius_min_pixels=1,
-                radius_max_pixels=12,
-                get_fill_color="color_dpe",
-                pickable=True,
-                auto_highlight=True,
-                opacity=1.0,
+                "ScatterplotLayer", data=df_dpe_f,
+                get_position="[lon, lat]", get_radius=8,
+                radius_min_pixels=1, radius_max_pixels=12,
+                get_fill_color="color_dpe", pickable=True, auto_highlight=True, opacity=1.0,
             )
+            st.pydeck_chart(pdk.Deck(
+                map_style=map_style, initial_view_state=VIEW_STATE_2D,
+                layers=[layer_conso, layer_dots_conso], tooltip=tooltip_dpe,
+            ))
 
-            st.pydeck_chart(
-                pdk.Deck(
-                    map_style=map_style,
-                    initial_view_state=VIEW_STATE_2D,
-                    layers=[layer_zones_conso, layer_dots_conso, transport_layer],
-                    tooltip=tooltip_dpe,
-                )
-            )
-
-    # =========================================================
-    # TAB : Heatmap densité énergétique
-    # =========================================================
-    with tab_heat:
-        st.markdown("##### Carte de chaleur – Consommation energetique (kWh/m2/an)")
+    with tab_dpe_heat:
+        st.markdown("##### Carte de chaleur – Consommation energetique (kWh/m²/an)")
         df_heat = df_dpe_f.dropna(subset=["conso_5_usages_ep"]).copy()
         if len(df_heat) > 0:
-            layer_zones_densite = pdk.Layer(
-                "HexagonLayer",
-                data=df_heat,
-                get_position="[lon, lat]",
-                get_weight="conso_5_usages_ep",
-                colorAggregation='"SUM"',   # Somme de la conso = Densité !
-                radius=150,
-                elevation_scale=0,
-                extruded=False,
+            layer_densite = pdk.Layer(
+                "HeatmapLayer", data=df_heat,
+                get_position="[lon, lat]", get_weight="conso_5_usages_ep",
+                aggregation='"SUM"', radiusPixels=80, intensity=1.2, threshold=0.05,
                 color_range=[
-                    [39, 174, 96, 120],
-                    [164, 196, 0, 120],
-                    [241, 196, 15, 120],
-                    [230, 126, 34, 120],
-                    [192, 57, 43, 120],
+                    [39, 174, 96], [164, 196, 0], [241, 196, 15],
+                    [230, 126, 34], [192, 57, 43],
                 ],
-                pickable=True,
-                auto_highlight=True,
+                pickable=False, opacity=0.6,
             )
-
-            layer_dots_densite = pdk.Layer(
-                "ScatterplotLayer",
-                data=df_heat,
-                get_position="[lon, lat]",
-                get_radius=8,
-                radius_min_pixels=1,
-                radius_max_pixels=12,
-                get_fill_color="color_dpe",
-                pickable=True,
-                auto_highlight=True,
-                opacity=1.0,
+            layer_dots_d = pdk.Layer(
+                "ScatterplotLayer", data=df_heat,
+                get_position="[lon, lat]", get_radius=8,
+                radius_min_pixels=1, radius_max_pixels=12,
+                get_fill_color="color_dpe", pickable=True, auto_highlight=True, opacity=1.0,
             )
-
-            st.pydeck_chart(
-                pdk.Deck(
-                    map_style=map_style,
-                    initial_view_state=VIEW_STATE_2D,
-                    layers=[layer_zones_densite, layer_dots_densite, transport_layer],
-                    tooltip=tooltip_dpe,
-                )
-            )
+            st.pydeck_chart(pdk.Deck(
+                map_style=map_style, initial_view_state=VIEW_STATE_2D,
+                layers=[layer_densite, layer_dots_d], tooltip=tooltip_dpe,
+            ))
         else:
             st.warning("Aucune donnée de consommation pour les filtres actuels.")
-
 else:
-    st.warning("Aucune donnée ne correspond à vos filtres. Elargissez les critères.")
+    st.info("Aucun logement DPE ne correspond à vos filtres.")
 
 st.divider()
 
 # ---------------------------------------------------------------------------
-# 7. TABLEAUX DE DONNÉES
+# 8. TABLEAUX DE DONNÉES
 # ---------------------------------------------------------------------------
-st.subheader("Apercu des données brutes")
+st.subheader("📊 Données brutes")
 
-tab_t1, tab_t2, tab_t3 = st.tabs(["DPE Nantes", "DVF Nantes (geocodées)", "Stations Transport"])
+tab_t1, tab_t2, tab_t3 = st.tabs(["DPE Nantes", "DVF Nantes (géocodées)", "Stations Transport"])
 
 with tab_t1:
     cols_dpe_show = [
@@ -837,9 +948,9 @@ with tab_t1:
             "adresse_fmt": "Adresse",
             "etiquette_dpe": "DPE",
             "surface_fmt": "Surface",
-            "type_batiment": "Type batiment",
-            "periode_construction": "Periode",
-            "type_energie_principale_chauffage": "Energie chauffage",
+            "type_batiment": "Type bâtiment",
+            "periode_construction": "Période",
+            "type_energie_principale_chauffage": "Énergie chauffage",
             "conso_fmt": "Conso. 5 usages",
         }).head(200),
         use_container_width=True,
@@ -853,11 +964,11 @@ with tab_t2:
     ]
     st.dataframe(
         df_dvf_f[cols_dvf_show].rename(columns={
-            "valeur_fmt": "Valeur fonciere",
+            "valeur_fmt": "Valeur foncière",
             "type_local": "Type",
-            "surface_m2": "Surface (m2)",
-            "nb_pieces": "Pieces",
-            "prix_m2_fmt": "Prix/m2",
+            "surface_m2": "Surface (m²)",
+            "nb_pieces": "Pièces",
+            "prix_m2_fmt": "Prix/m²",
             "date_mutation": "Date vente",
         }).head(200),
         use_container_width=True,
@@ -877,13 +988,13 @@ with tab_t3:
     )
 
 # ---------------------------------------------------------------------------
-# 8. PIED DE PAGE
+# 9. PIED DE PAGE
 # ---------------------------------------------------------------------------
 st.markdown("---")
 st.markdown(
     "<small>Sources : ADEME (DPE logements existants 44) "
     "| DGFiP (DVF 2025, dept 44) "
-    "| Base Adresse Nationale (geocodage) "
+    "| Base Adresse Nationale (géocodage) "
     "| OpenStreetMap (stations transport 44) "
     "| Projet SAE-601 – IUT Nantes</small>",
     unsafe_allow_html=True,
