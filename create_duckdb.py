@@ -83,15 +83,14 @@ def load_communes(con):
         rows.append((
             props.get("code"),
             props.get("nom"),
-            geom.get("type") if geom else None,
             json.dumps(geom) if geom else None,
         ))
-    con.executemany("INSERT INTO communes VALUES (?, ?, ?, ?)", rows)
+    con.executemany("INSERT INTO dim_communes VALUES (?, ?, ?)", rows)
     return len(features)
 
 
 def load_peb_geometry(con):
-    """Enrichit la table PEB avec la géométrie du GeoJSON."""
+    """Enrichit la table dim_peb avec la géométrie du GeoJSON."""
     peb_geojson_path = os.path.join(DATA_DIR, "peb", "peb-44.geojson")
     with open(peb_geojson_path, "r", encoding="utf-8") as f:
         peb_geojson = json.load(f)
@@ -103,7 +102,7 @@ def load_peb_geometry(con):
         gid = props.get("gid")
         if gid and geom:
             con.execute(
-                "UPDATE peb_servitudes SET geometrie_json = ? WHERE gid = ?",
+                "UPDATE dim_peb SET geometrie_json = ? WHERE gid = ?",
                 [json.dumps(geom), gid],
             )
             updated += 1
@@ -119,11 +118,16 @@ def print_summary(con):
         ORDER BY table_name
     """).fetchall()
 
-    print(f"\n{'Table':<35} {'Lignes':>12}")
-    print("-" * 50)
+    print(f"\n{'Table':<35} {'Lignes':>12} {'Colonnes':>10}")
+    print("-" * 60)
     for (table_name,) in tables:
         count = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-        print(f"  {table_name:<33} {count:>12,}")
+        cols = con.execute(f"""
+            SELECT COUNT(*)
+            FROM duckdb_columns()
+            WHERE table_name = '{table_name}'
+        """).fetchone()[0]
+        print(f"  {table_name:<33} {count:>12,} {cols:>10}")
 
     views = con.execute("""
         SELECT view_name
@@ -137,16 +141,23 @@ def print_summary(con):
         print(f"  - {v}")
 
     print()
-    print("  communes (PK: code_commune)")
-    print("    |")
-    print("    +---> dvf_enriched (FK: code_insee)")
-    print("    +---> insee_communes_2021 (FK: CODGEO)")
-    print("    +---> adresses_ban (FK: code_insee)")
-    print("    +---> dpe_logements (FK: code_insee_ban)")
+    print("  Schéma en étoile :")
     print()
-    print("  dvf_enriched <--- jointure spatiale ---> ecoles")
-    print("  dvf_enriched <--- jointure spatiale ---> stations_transport")
-    print("  dvf_enriched <--- jointure spatiale ---> peb_servitudes")
+    print("          dim_ban (géocodage : adresse → lat/lon)")
+    print("              |")
+    print("         dim_communes (PK: code_commune)")
+    print("              |")
+    print("  dim_insee --+------+------+-- dim_dpe")
+    print("  (CODGEO)   |             |  (code_insee_ban)")
+    print("              |             |")
+    print("         fait_transactions")
+    print("        (FK: code_insee, ...)")
+    print("              |             |")
+    print("  dim_ecoles -+             +- dim_transport")
+    print("  (spatiale)  |                (spatiale)")
+    print("              |")
+    print("           dim_peb")
+    print("         (spatiale)")
 
 
 def main():
@@ -167,20 +178,21 @@ def main():
     # --- Étape 1 : Structure + chargement CSV (via SQL) ---
     print("=" * 60)
     print("Étape 1 : Exécution de create_database.sql")
+    print("         (schéma en étoile : dimensions + table de faits)")
     print("=" * 60)
     execute_sql_file(con, "create_database.sql")
     print("   -> Tables et index créés avec succès.\n")
 
     # --- Étape 2 : Chargement des communes (GeoJSON, nécessite Python) ---
     print("=" * 60)
-    print("Étape 2 : Chargement des communes (GeoJSON)")
+    print("Étape 2 : Chargement dim_communes (GeoJSON)")
     print("=" * 60)
     nb_communes = load_communes(con)
     print(f"   -> {nb_communes} communes insérées.\n")
 
     # --- Étape 3 : Enrichissement PEB avec géométrie GeoJSON ---
     print("=" * 60)
-    print("Étape 3 : Enrichissement PEB (géométrie GeoJSON)")
+    print("Étape 3 : Enrichissement dim_peb (géométrie GeoJSON)")
     print("=" * 60)
     nb_peb = load_peb_geometry(con)
     print(f"   -> {nb_peb} géométries PEB mises à jour.\n")
