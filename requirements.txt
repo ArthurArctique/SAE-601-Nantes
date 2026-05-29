@@ -4,3 +4,4 @@ scipy
 duckdb
 streamlit
 pyproj
+plotly
