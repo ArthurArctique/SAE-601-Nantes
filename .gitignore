@@ -1,1 +1,6 @@
 data/*
+*.duckdb
+*.duckdb.wal
+__duckdb_export_temp__/*
+.venv/*
+.DS_Store
