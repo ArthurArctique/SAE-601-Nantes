@@ -37,8 +37,9 @@ CREATE INDEX idx_dim_communes_code ON dim_communes(code_commune);
 
 -- ===========================================================================
 -- DIMENSION : ADRESSES BAN (source : ban/adresses-44.csv)
---   Base Adresse Nationale — référentiel de géocodage
---   Permet le lien adresse textuelle → coordonnées lat/lon
+--   Base Adresse Nationale — référentiel d'adresses global
+--   Conservée pour cohérence (DPE, etc.) mais le géocodage DVF 
+--   est désormais fait en amont via l'API BAN (99.8% de succès).
 --   Source : 23 colonnes, sélection réduite à 9
 -- ===========================================================================
 CREATE TABLE dim_ban AS
@@ -192,7 +193,7 @@ CREATE INDEX idx_dim_insee_codgeo ON dim_insee(CODGEO);
 -- ===========================================================================
 -- TABLE DE FAITS : TRANSACTIONS IMMOBILIÈRES DVF ENRICHIES
 --   (source : dvf/dvf_enriched_dept44.csv)
---   Table centrale du schéma en étoile
+--   Table centrale du schéma en étoile (géocodée nativement via API BAN)
 --   Chaque ligne = une transaction immobilière enrichie
 --   FK : code_insee → dim_communes, dim_insee
 -- ===========================================================================
