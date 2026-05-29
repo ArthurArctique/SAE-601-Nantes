@@ -599,12 +599,11 @@ prix_min = col_prix1.number_input("Prix Min :", min_value=10_000, max_value=5_00
 prix_max = col_prix2.number_input("Prix Max :", min_value=10_000, max_value=5_000_000, value=800_000, step=10_000)
 
 st.sidebar.markdown("### Densité d'affichage")
-max_points = st.sidebar.slider(
+max_points_choice = st.sidebar.select_slider(
     "Nombre max de biens sur la carte :",
-    min_value=10,
-    max_value=800,
-    value=150,
-    step=10,
+    options=[50, 100, 200, 500, 1000, "Max"],
+    value=200,
+    key="max_points_slider"
 )
 
 st.sidebar.markdown("---")
@@ -642,7 +641,9 @@ df_dvf_f = df_dvf[
 ].copy()
 
 # Limitation du nombre de points à afficher
-df_dvf_f = df_dvf_f.head(max_points)
+if max_points_choice != "Max":
+    df_dvf_f = df_dvf_f.head(max_points_choice)
+
 
 # Gestion de la sélection d'un bien via les paramètres de requête
 selected_id = st.query_params.get("selected_id")
