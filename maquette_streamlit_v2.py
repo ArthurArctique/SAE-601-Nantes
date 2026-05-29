@@ -419,44 +419,46 @@ def load_dvf_geocoded():
     ) as f:
         f.readline()
         for line in f:
-            parts = line.rstrip("\n").split(",")
-            if len(parts) < 20 or parts[20].strip() != "109":
+            parts = line.rstrip("\n").split(";")
+            if len(parts) < 40:
                 continue
+            
+            # Code commune (index 19) doit être 109 pour Nantes
+            if parts[19].strip() != "109":
+                continue
+                
+            # Nature mutation (index 9) doit être Vente
             if parts[9].strip() != "Vente":
                 continue
-            extra = len(parts) - 43
-            type_local_idx = 36 + extra
-            type_local = (
-                parts[type_local_idx].strip() if type_local_idx < len(parts) else ""
-            )
+                
+            # Type local (index 36)
+            type_local = parts[36].strip()
             if type_local not in ("Maison", "Appartement"):
                 continue
 
             val_raw = parts[10].strip()
-            surf_raw = (
-                parts[38 + extra].strip() if (38 + extra) < len(parts) else ""
-            )
-            pieces_raw = (
-                parts[39 + extra].strip() if (39 + extra) < len(parts) else ""
-            )
-            code_voie = parts[15].strip() if 15 < len(parts) else ""
-            date_mut = parts[8].strip() if 8 < len(parts) else ""
+            surf_raw = parts[38].strip()
+            pieces_raw = parts[39].strip()
+            code_voie = parts[14].strip()
+            date_mut = parts[8].strip()
 
-            # Numéro de voie : essai position 11, puis 12 si vide/nul
+            # Numéro de voie : index 11, puis 12 si vide/nul
             no_voie = parts[11].strip()
-            if no_voie in ("00", "", "0"):
-                no_voie = parts[12].strip() if 12 < len(parts) else ""
+            if no_voie in ("00", "", "0") and len(parts) > 12:
+                no_voie = parts[12].strip()
 
             try:
-                valeur = float(val_raw)
+                # Gérer le séparateur décimal français ","
+                valeur = float(val_raw.replace(",", "."))
             except ValueError:
                 valeur = np.nan
             try:
-                surface = float(surf_raw)
+                # Gérer le séparateur décimal français ","
+                surface = float(surf_raw.replace(",", "."))
             except ValueError:
                 surface = np.nan
             try:
-                pieces = int(float(pieces_raw))
+                pieces = int(float(pieces_raw.replace(",", ".")))
             except (ValueError, TypeError):
                 pieces = np.nan
 
@@ -471,6 +473,11 @@ def load_dvf_geocoded():
             })
 
     df = pd.DataFrame(rows)
+    if df.empty:
+        df = pd.DataFrame(columns=[
+            "valeur_fonciere", "type_local", "surface_m2", "nb_pieces",
+            "code_voie", "no_voie", "date_mutation"
+        ])
     df["valeur_fonciere"] = pd.to_numeric(df["valeur_fonciere"], errors="coerce")
     df["surface_m2"] = pd.to_numeric(df["surface_m2"], errors="coerce")
     df = df[
