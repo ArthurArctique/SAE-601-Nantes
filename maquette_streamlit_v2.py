@@ -200,6 +200,51 @@ div[data-baseweb="tag"] *, span[data-baseweb="tag"] * {
     margin: 0 0 16px 0 !important;
     line-height: 1.4 !important;
 }
+
+/* Styling de l'avis de prix tout en haut */
+.advisor-box {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    padding: 16px 20px !important;
+    margin-bottom: 20px !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04) !important;
+    font-family: 'Inter', 'Segoe UI', sans-serif !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+}
+.advisor-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+}
+.advisor-project-title {
+    font-size: 13px !important;
+    font-weight: 800 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    color: #64748b !important;
+    margin: 0 !important;
+}
+.advisor-badge-pill {
+    display: inline-block !important;
+    padding: 4px 12px !important;
+    border-radius: 20px !important;
+    font-size: 11.5px !important;
+    font-weight: 800 !important;
+    color: #ffffff !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+}
+.advisor-text-desc {
+    font-size: 13.5px !important;
+    color: #1e293b !important;
+    line-height: 1.5 !important;
+    margin: 0 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -617,6 +662,90 @@ nb_dvf = len(df_dvf_f)
 # 6. VUE PRINCIPALE – STYLE SELOGER (Liste + Carte)
 # ---------------------------------------------------------------------------
 
+# --- AJOUT DE L'AVIS D'ÉQUITÉ DE PRIX TOUT EN HAUT DE L'UI ---
+if selected_row is not None:
+    # 1. Calculer la distance géographique avec les autres biens du référentiel
+    df_others_all = df_dvf.copy()
+    df_others_all["dist_km"] = np.sqrt(
+        ((df_others_all["lat"] - selected_row["lat"]) * 111.32) ** 2 +
+        ((df_others_all["lon"] - selected_row["lon"]) * 80.0) ** 2
+    )
+    # Exclure le bien sélectionné lui-même
+    df_others_all = df_others_all[df_others_all.index != selected_idx]
+    
+    if not df_others_all.empty:
+        # Prendre les 15 biens les plus proches
+        closest_15 = df_others_all.sort_values("dist_km").head(15)
+        median_local_prix_m2 = closest_15["prix_m2"].median()
+    else:
+        median_local_prix_m2 = selected_row["prix_m2"]
+        
+    prix_m2_bien = selected_row["prix_m2"]
+    diff_ratio = (prix_m2_bien - median_local_prix_m2) / median_local_prix_m2
+    
+    # Choix du verdict, de la couleur et de la description en fonction de l'écart à la médiane locale
+    if diff_ratio <= -0.12:
+        verdict = "Excellente opportunité"
+        badge_color = "#2ecc71"  # Vert émeraude
+        border_color = "#2ecc71"
+        desc_text = (
+            f"Ce bien est proposé à <strong>{prix_m2_bien:,.0f} €/m²</strong>, soit "
+            f"<strong>{-diff_ratio*100:.1f}% de moins</strong> que la médiane locale de ses 15 plus proches voisins géographiques "
+            f"(<strong>{median_local_prix_m2:,.0f} €/m²</strong>). Au vu de sa localisation et de ses caractéristiques, ce bien représente "
+            f"une opportunité particulièrement attractive et sous-évaluée par rapport au micro-marché environnant."
+        ).replace(",", " ")
+    elif diff_ratio <= 0.05:
+        verdict = "Prix cohérent"
+        badge_color = "#3498db"  # Bleu
+        border_color = "#3498db"
+        desc_text = (
+            f"Ce bien est proposé à <strong>{prix_m2_bien:,.0f} €/m²</strong>, ce qui est "
+            f"<strong>très proche (-/{max(0, diff_ratio*100):.1f}%)</strong> de la médiane locale de ses 15 plus proches voisins géographiques "
+            f"(<strong>{median_local_prix_m2:,.0f} €/m²</strong>). Le prix reflète fidèlement la valeur de marché réelle de sa micro-localisation "
+            f"et de ses prestations."
+        ).replace(",", " ")
+    else:
+        verdict = "Prix élevé"
+        badge_color = "#e74c3c"  # Rouge/Corail
+        border_color = "#e74c3c"
+        desc_text = (
+            f"Ce bien est proposé à <strong>{prix_m2_bien:,.0f} €/m²</strong>, soit "
+            f"<strong>{diff_ratio*100:.1f}% de plus</strong> que la médiane locale de ses 15 plus proches voisins géographiques "
+            f"(<strong>{median_local_prix_m2:,.0f} €/m²</strong>). À moins que des caractéristiques exceptionnelles du bien "
+            f"(rénovation haut de gamme, exposition exceptionnelle, grand jardin) ne le justifient, ce prix se situe au-dessus de la tendance du quartier."
+        ).replace(",", " ")
+
+    # Rendu HTML de l'avis de prix
+    advisor_html = (
+        f"<div class='advisor-box' style='border-left: 5px solid {border_color} !important;'>"
+        f"<div class='advisor-header'>"
+        f"<span class='advisor-project-title'>💡 Avis d'équité de prix (Est-ce un bon prix ?)</span>"
+        f"<span class='advisor-badge-pill' style='background-color: {badge_color} !important;'>{verdict}</span>"
+        f"</div>"
+        f"<p class='advisor-text-desc'>{desc_text}</p>"
+        f"</div>"
+    )
+    st.markdown(advisor_html, unsafe_allow_html=True)
+else:
+    # Rendu du message par défaut (Explications du projet de Business Intelligence)
+    welcome_text = (
+        "Étant donné un prix, une localisation et un ensemble de caractéristiques immobilières, ce bien est-il évalué à son juste prix ? "
+        "L'objectif de cette plateforme décisionnelle de Business Intelligence est d'accompagner les acheteurs, vendeurs et professionnels "
+        "en croisant de multiples sources de données publiques : historique des transactions (DVF), diagnostics de performance "
+        "énergétique (DPE), zones d'exposition au bruit, contexte socio-économique et proximité des réseaux de transports en commun. "
+        "<strong>Cliquez sur un bien sur la carte ou dans la liste pour obtenir une analyse d'équité en temps réel.</strong>"
+    )
+    advisor_html = (
+        f"<div class='advisor-box' style='border-left: 5px solid #d4af37 !important;'>"
+        f"<div class='advisor-header'>"
+        f"<span class='advisor-project-title'>💡 Observatoire Décisionnel Nantes (Business Intelligence)</span>"
+        f"<span class='advisor-badge-pill' style='background-color: #d4af37 !important;'>Projet SAE-601</span>"
+        f"</div>"
+        f"<p class='advisor-text-desc'>{welcome_text}</p>"
+        f"</div>"
+    )
+    st.markdown(advisor_html, unsafe_allow_html=True)
+
 # En-tête style SeLoger
 st.markdown(
     f"<div class='seloger-header'>"
@@ -631,67 +760,153 @@ col_list, col_map = st.columns([2, 3], gap="medium")
 
 # === COLONNE GAUCHE : Liste des biens ===
 with col_list:
-    # Tri
-    tri_option = st.selectbox(
-        "Tri par :",
-        ["Prix croissant", "Prix décroissant", "Prix/m² croissant",
-         "Prix/m² décroissant", "Surface croissante", "Surface décroissante"],
-        index=1,
-        label_visibility="collapsed",
-    )
-    tri_map = {
-        "Prix croissant": ("valeur_fonciere", True),
-        "Prix décroissant": ("valeur_fonciere", False),
-        "Prix/m² croissant": ("prix_m2", True),
-        "Prix/m² décroissant": ("prix_m2", False),
-        "Surface croissante": ("surface_m2", True),
-        "Surface décroissante": ("surface_m2", False),
-    }
-    sort_col, sort_asc = tri_map[tri_option]
-    df_sorted = df_dvf_f.sort_values(sort_col, ascending=sort_asc).head(80)
-
-    # Générer les cartes HTML sans retours à la ligne ni indentations pour éviter les blocs de code markdown brut
-    cards_html = "<div class='property-list'>"
-    for idx, row in df_sorted.iterrows():
-        type_local = row.get("type_local", "")
+    if selected_row is not None:
+        # Bouton élégant de retour à la liste complète
+        if st.button("⬅ Voir tous les biens", key="btn_reset_selection"):
+            st.query_params.clear()
+            st.rerun()
+            
+        st.markdown("#### 📍 Bien sélectionné")
+        
+        # Générer la carte HTML du bien sélectionné
+        type_local = selected_row.get("type_local", "")
         badge_cls = "badge-maison" if type_local == "Maison" else "badge-appart"
-
-        valeur = row.get("valeur_fonciere", 0)
-        prix_m2_val = row.get("prix_m2", 0)
-        surface = row.get("surface_m2", 0)
-        pieces = row.get("nb_pieces", "")
-        date_mut = row.get("date_mutation", "")
-
+        
+        valeur = selected_row.get("valeur_fonciere", 0)
+        prix_m2_val = selected_row.get("prix_m2", 0)
+        surface = selected_row.get("surface_m2", 0)
+        pieces = selected_row.get("nb_pieces", "")
+        date_mut = selected_row.get("date_mutation", "")
+        
         val_str = f"{valeur:,.0f} €".replace(",", " ") if pd.notna(valeur) else "N/A"
         pm2_str = f"{prix_m2_val:,.0f} €/m²".replace(",", " ") if pd.notna(prix_m2_val) else ""
         surf_str = f"{surface:.0f} m²" if pd.notna(surface) else ""
         pcs_str = f"{int(pieces)} pièce{'s' if pieces > 1 else ''}" if pd.notna(pieces) and pieces > 0 else ""
-
+        
         details_parts = [s for s in [surf_str, pcs_str] if s]
         details_str = " · ".join(details_parts)
-
-        # Style de surbrillance si la carte est cliquée/sélectionnée (doré / gold)
-        is_selected = (idx == selected_idx)
-        card_style = "border: 2px solid #d4af37; box-shadow: 0 4px 16px rgba(212, 175, 55, 0.35); background: #fdfdfd;" if is_selected else ""
-
-        # Construction sur une seule ligne continue pour immuniser contre le bug du markdown code block
-        card_html = (
-            f"<a href='?selected_id={idx}' target='_self' style='text-decoration: none; color: inherit;'>"
+        
+        card_style = "border: 2px solid #d4af37; box-shadow: 0 4px 16px rgba(212, 175, 55, 0.45); background: #fafafa;"
+        selected_card_html = (
             f"<div class='prop-card' style='{card_style}'>"
             f"<p class='prop-price'>{val_str}</p>"
             f"<p class='prop-price-m2'>{pm2_str}</p>"
-            f"<p class='prop-type'>"
-            f"<span class='prop-badge {badge_cls}'>{type_local}</span>"
-            f" {type_local} à vendre"
-            f"</p>"
+            f"<p class='prop-type'><span class='prop-badge {badge_cls}'>{type_local}</span></p>"
             f"<p class='prop-details'>{details_str}</p>"
             f"<p class='prop-date'>Vente du {date_mut}</p>"
             f"</div>"
-            f"</a>"
         )
-        cards_html += card_html
-    cards_html += "</div>"
-    st.markdown(cards_html, unsafe_allow_html=True)
+        st.markdown(selected_card_html, unsafe_allow_html=True)
+        
+        # Section des 5 biens similaires recommandés
+        st.markdown("#### ✨ 5 Biens les plus similaires (Prix & Lieu)")
+        
+        # Filtrer le dataset pour exclure le bien sélectionné et calculer les scores
+        df_others = df_dvf_f[df_dvf_f.index != selected_idx].copy()
+        if not df_others.empty:
+            # Distance géographique approximative en kilomètres
+            df_others["dist_km"] = np.sqrt(
+                ((df_others["lat"] - selected_row["lat"]) * 111.32) ** 2 +
+                ((df_others["lon"] - selected_row["lon"]) * 80.0) ** 2
+            )
+            # Différence relative de prix au m²
+            df_others["price_diff_pct"] = (df_others["prix_m2"] - selected_row["prix_m2"]).abs() / max(selected_row["prix_m2"], 1)
+            # Score de similarité combiné (50% distance, 50% prix)
+            df_others["similarity_score"] = (df_others["dist_km"] / 2.0) + (df_others["price_diff_pct"] * 1.5)
+            # Sélectionner les 5 biens les plus similaires
+            df_similar = df_others.sort_values("similarity_score").head(5)
+        else:
+            df_similar = pd.DataFrame()
+            
+        # Générer les cartes HTML des biens similaires
+        cards_html = "<div class='property-list'>"
+        for idx, row in df_similar.iterrows():
+            type_local = row.get("type_local", "")
+            badge_cls = "badge-maison" if type_local == "Maison" else "badge-appart"
+            
+            valeur = row.get("valeur_fonciere", 0)
+            prix_m2_val = row.get("prix_m2", 0)
+            surface = row.get("surface_m2", 0)
+            pieces = row.get("nb_pieces", "")
+            date_mut = row.get("date_mutation", "")
+            
+            val_str = f"{valeur:,.0f} €".replace(",", " ") if pd.notna(valeur) else "N/A"
+            pm2_str = f"{prix_m2_val:,.0f} €/m²".replace(",", " ") if pd.notna(prix_m2_val) else ""
+            surf_str = f"{surface:.0f} m²" if pd.notna(surface) else ""
+            pcs_str = f"{int(pieces)} pièce{'s' if pieces > 1 else ''}" if pd.notna(pieces) and pieces > 0 else ""
+            
+            details_parts = [s for s in [surf_str, pcs_str] if s]
+            details_str = " · ".join(details_parts)
+            
+            card_html = (
+                f"<a href='?selected_id={idx}' target='_self' style='text-decoration: none; color: inherit;'>"
+                f"<div class='prop-card' style=''>"
+                f"<p class='prop-price'>{val_str}</p>"
+                f"<p class='prop-price-m2'>{pm2_str}</p>"
+                f"<p class='prop-type'><span class='prop-badge {badge_cls}'>{type_local}</span></p>"
+                f"<p class='prop-details'>{details_str}</p>"
+                f"<p class='prop-date'>Vente du {date_mut}</p>"
+                f"</div>"
+                f"</a>"
+            )
+            cards_html += card_html
+        cards_html += "</div>"
+        st.markdown(cards_html, unsafe_allow_html=True)
+        
+    else:
+        # Tri de la liste complète des biens
+        tri_option = st.selectbox(
+            "Tri par :",
+            ["Prix croissant", "Prix décroissant", "Prix/m² croissant",
+             "Prix/m² décroissant", "Surface croissante", "Surface décroissante"],
+            index=1,
+            label_visibility="collapsed",
+        )
+        tri_map = {
+            "Prix croissant": ("valeur_fonciere", True),
+            "Prix décroissant": ("valeur_fonciere", False),
+            "Prix/m² croissant": ("prix_m2", True),
+            "Prix/m² décroissant": ("prix_m2", False),
+            "Surface croissante": ("surface_m2", True),
+            "Surface décroissante": ("surface_m2", False),
+        }
+        sort_col, sort_asc = tri_map[tri_option]
+        df_sorted = df_dvf_f.sort_values(sort_col, ascending=sort_asc).head(80)
+
+        # Générer les cartes HTML de tous les biens sans retours à la ligne ni indentations
+        cards_html = "<div class='property-list'>"
+        for idx, row in df_sorted.iterrows():
+            type_local = row.get("type_local", "")
+            badge_cls = "badge-maison" if type_local == "Maison" else "badge-appart"
+
+            valeur = row.get("valeur_fonciere", 0)
+            prix_m2_val = row.get("prix_m2", 0)
+            surface = row.get("surface_m2", 0)
+            pieces = row.get("nb_pieces", "")
+            date_mut = row.get("date_mutation", "")
+
+            val_str = f"{valeur:,.0f} €".replace(",", " ") if pd.notna(valeur) else "N/A"
+            pm2_str = f"{prix_m2_val:,.0f} €/m²".replace(",", " ") if pd.notna(prix_m2_val) else ""
+            surf_str = f"{surface:.0f} m²" if pd.notna(surface) else ""
+            pcs_str = f"{int(pieces)} pièce{'s' if pieces > 1 else ''}" if pd.notna(pieces) and pieces > 0 else ""
+
+            details_parts = [s for s in [surf_str, pcs_str] if s]
+            details_str = " · ".join(details_parts)
+
+            card_html = (
+                f"<a href='?selected_id={idx}' target='_self' style='text-decoration: none; color: inherit;'>"
+                f"<div class='prop-card' style=''>"
+                f"<p class='prop-price'>{val_str}</p>"
+                f"<p class='prop-price-m2'>{pm2_str}</p>"
+                f"<p class='prop-type'><span class='prop-badge {badge_cls}'>{type_local}</span></p>"
+                f"<p class='prop-details'>{details_str}</p>"
+                f"<p class='prop-date'>Vente du {date_mut}</p>"
+                f"</div>"
+                f"</a>"
+            )
+            cards_html += card_html
+        cards_html += "</div>"
+        st.markdown(cards_html, unsafe_allow_html=True)
 
 # === COLONNE DROITE : Carte avec marqueurs rouges ===
 with col_map:
