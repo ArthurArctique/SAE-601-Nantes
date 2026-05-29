@@ -330,7 +330,7 @@ _transformer = Transformer.from_crs("EPSG:2154", "EPSG:4326", always_xy=True)
 @st.cache_data(show_spinner="Chargement des données DPE (Nantes)…")
 def load_dpe():
     df = pd.read_csv(
-        "c:/projet_2026/data/dpe/dpe-logements-existants-44.csv",
+        "data/dpe/dpe-logements-existants-44.csv",
         usecols=[
             "etiquette_dpe", "etiquette_ges",
             "surface_habitable_logement",
@@ -389,7 +389,7 @@ def load_dpe():
 def load_ban_nantes():
     """Charge les adresses BAN filtrées sur Nantes (code_insee 44109)."""
     df = pd.read_csv(
-        "c:/projet_2026/data/ban/adresses-44.csv",
+        "data/ban/adresses-44.csv",
         sep=";",
         usecols=["id_fantoir", "numero", "lon", "lat"],
         low_memory=False,
@@ -414,7 +414,7 @@ def load_dvf_geocoded():
     """
     rows = []
     with open(
-        "c:/projet_2026/data/dvf/dvf-2025-dept44.csv",
+        "data/dvf/dvf-2025-dept44.csv",
         "r", encoding="utf-8", errors="replace",
     ) as f:
         f.readline()
@@ -538,7 +538,7 @@ def load_dvf_geocoded():
 @st.cache_data(show_spinner="Chargement des stations de transport…")
 def load_transport():
     df = pd.read_csv(
-        "c:/projet_2026/data/transport/stations-44.csv",
+        "data/transport/stations-44.csv",
         sep=";", encoding="utf-8",
     )
     df = df.dropna(subset=["lat", "lon"])
