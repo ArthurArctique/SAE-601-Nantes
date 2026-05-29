@@ -20,8 +20,8 @@ graph TD
     end
 
     subgraph "🗺️ Dimensions spatiales"
-        DE["<b>dim_ecoles</b><br/>0 × 8 col"]
-        DT["<b>dim_transport</b><br/>0 × 8 col"]
+        DE["<b>dim_ecoles</b><br/>1 434 × 8 col"]
+        DT["<b>dim_transport</b><br/>228 × 8 col"]
         DP["<b>dim_peb</b><br/>3 × 5 col"]
     end
 
@@ -281,7 +281,7 @@ DVF brut (adresse textuelle)          API BAN (En Ligne - batch)
 
 | Source | Lignes | Colonnes |
 |--------|--------|----------|
-| `data/ecoles/ecoles-44.csv` (séparateur `;`) | ⚠️ **0** (à peupler) | 8 |
+| `data/ecoles/ecoles-44.csv` (séparateur `;`) | 1 434 | 8 |
 
 ### Colonnes
 
@@ -308,7 +308,7 @@ DVF brut (adresse textuelle)          API BAN (En Ligne - batch)
 |------|---------|---------------------------------|
 | 📍 Plus proche voisin | KDTree (scipy) en Python sur `(lat, lon)` | `distance_ecole_m` + `nom_ecole_proche` |
 
-> ⚠️ **Table actuellement vide** — la requête Overpass doit être corrigée pour peupler cette table. Les colonnes `distance_ecole_m` et `nom_ecole_proche` dans `fait_transactions` sont `NULL` tant que les données ne sont pas disponibles.
+> Les distances calculées (`distance_ecole_m`) et le nom de l'école (`nom_ecole_proche`) sont pré-calculés et injectés dans `fait_transactions`.
 
 ---
 
@@ -318,7 +318,7 @@ DVF brut (adresse textuelle)          API BAN (En Ligne - batch)
 
 | Source | Lignes | Colonnes |
 |--------|--------|----------|
-| `data/transport/stations-44.csv` (séparateur `;`) | ⚠️ **0** (à peupler) | 8 |
+| `data/transport/stations-44.csv` (séparateur `;`) | 228 | 8 |
 
 ### Colonnes
 
@@ -345,7 +345,7 @@ DVF brut (adresse textuelle)          API BAN (En Ligne - batch)
 |------|---------|---------------------------------|
 | 📍 Plus proche voisin | KDTree (scipy) en Python sur `(lat, lon)` | `distance_transport_m` + `nom_transport_proche` |
 
-> ⚠️ **Table actuellement vide** — même situation que `dim_ecoles`.
+> Comme pour les écoles, les résultats (distance et nom) sont intégrés dans `fait_transactions`.
 
 ---
 
