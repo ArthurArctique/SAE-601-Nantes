@@ -92,10 +92,9 @@ def run_enrichment_pipeline():
     dvf = dvf.dropna(subset=['Valeur fonciere', 'Surface reelle bati'])
     print(f"Transactions résidentielles filtrées : {len(dvf)}")
     
-    # 2. Geocoding
-    print("--- Étape 2 : Chargement et indexation BAN ---")
-    ban = pd.read_csv("data/ban/adresses-44.csv", sep=";")
-    
+    # 2. Geocoding via API BAN (api-adresse.data.gouv.fr)
+    print("--- Étape 2 : Géocodage via l'API BAN (batch) ---")
+
     def normalize_address(num, type_voie, nom_voie, commune):
         parts = []
         if pd.notna(num) and str(num).strip():
@@ -110,32 +109,124 @@ def run_enrichment_pipeline():
         full = " ".join(parts)
         full = re.sub(r'[^\w\s]', ' ', full)
         return " ".join(full.split())
-        
+
     print("Normalisation des adresses DVF...")
     dvf['adresse_normalisee'] = dvf.apply(
         lambda r: normalize_address(r['No voie'], r['Type de voie'], r['Voie'], r['Commune']), axis=1
     )
-    
-    print("Indexation de la BAN...")
-    ban['adresse_normalisee'] = ban.apply(
-        lambda r: normalize_address(r['numero'], '', r['nom_voie'], r['nom_commune']), axis=1
-    )
-    ban = ban.drop_duplicates(subset=['adresse_normalisee'])
-    ban_lookup = ban.set_index('adresse_normalisee')[['lat', 'lon']].to_dict('index')
-    
-    print("Application du géocodage...")
-    def geocode(row):
-        addr = row['adresse_normalisee']
-        if addr in ban_lookup:
-            return ban_lookup[addr]['lat'], ban_lookup[addr]['lon']
-        return np.nan, np.nan
-        
-    coords = dvf.apply(geocode, axis=1)
-    dvf['lat'] = [c[0] for c in coords]
-    dvf['lon'] = [c[1] for c in coords]
-    
+
+    # Construction du code_insee en amont (nécessaire pour l'API BAN)
+    def get_insee_code(row):
+        dept = str(row['Code departement']).strip().split('.')[0].zfill(2)
+        comm = str(row['Code commune']).strip().split('.')[0].zfill(3)
+        return dept + comm
+
+    dvf['code_insee'] = dvf.apply(get_insee_code, axis=1)
+
+    # Géocodage batch via l'API BAN
+    import io
+    import time
+
+    def geocode_batch_api(df, batch_size=5000):
+        """Géocode un DataFrame via l'API BAN en mode batch CSV.
+        L'API accepte un CSV avec colonnes 'adresse' et 'citycode',
+        et retourne un CSV enrichi avec latitude, longitude, result_score."""
+
+        results_lat = np.full(len(df), np.nan)
+        results_lon = np.full(len(df), np.nan)
+        results_score = np.full(len(df), np.nan)
+
+        # Préparer les adresses uniques pour éviter les doublons
+        unique_addrs = df[['adresse_normalisee', 'code_insee']].drop_duplicates()
+        print(f"  Adresses uniques à géocoder : {len(unique_addrs)}")
+
+        geocoded_cache = {}
+        total_batches = (len(unique_addrs) + batch_size - 1) // batch_size
+
+        for batch_idx in range(total_batches):
+            start = batch_idx * batch_size
+            end = min(start + batch_size, len(unique_addrs))
+            batch = unique_addrs.iloc[start:end]
+
+            # Construire le CSV à envoyer
+            csv_buffer = io.StringIO()
+            csv_buffer.write("adresse,citycode\n")
+            for _, row in batch.iterrows():
+                addr = str(row['adresse_normalisee']).replace('"', '""')
+                code = str(row['code_insee'])
+                csv_buffer.write(f'"{addr}",{code}\n')
+
+            csv_data = csv_buffer.getvalue().encode('utf-8')
+
+            # Appel API batch
+            boundary = '----FormBoundary' + str(int(time.time()))
+            body = (
+                f'--{boundary}\r\n'
+                f'Content-Disposition: form-data; name="data"; filename="addresses.csv"\r\n'
+                f'Content-Type: text/csv\r\n\r\n'
+            ).encode('utf-8') + csv_data + (
+                f'\r\n--{boundary}\r\n'
+                f'Content-Disposition: form-data; name="columns"\r\n\r\nadresse\r\n'
+                f'--{boundary}\r\n'
+                f'Content-Disposition: form-data; name="citycode"\r\n\r\ncitycode\r\n'
+                f'--{boundary}--\r\n'
+            ).encode('utf-8')
+
+            url = "https://api-adresse.data.gouv.fr/search/csv/"
+            req = urllib.request.Request(url, data=body, method='POST')
+            req.add_header('Content-Type', f'multipart/form-data; boundary={boundary}')
+            req.add_header('User-Agent', 'SAE-601-Nantes/1.0')
+
+            retries = 3
+            for attempt in range(retries):
+                try:
+                    with urllib.request.urlopen(req, timeout=120) as response:
+                        result_csv = response.read().decode('utf-8')
+
+                    reader = csv.DictReader(io.StringIO(result_csv))
+                    for row in reader:
+                        addr = row.get('adresse', '')
+                        lat = row.get('latitude', '')
+                        lon = row.get('longitude', '')
+                        score = row.get('result_score', '0')
+
+                        try:
+                            score_f = float(score)
+                        except (ValueError, TypeError):
+                            score_f = 0.0
+
+                        if lat and lon and score_f >= 0.4:
+                            geocoded_cache[addr] = (float(lat), float(lon), score_f)
+
+                    break  # Succès
+                except Exception as e:
+                    if attempt < retries - 1:
+                        print(f"  [RETRY {attempt+1}] Erreur batch {batch_idx+1}: {e}")
+                        time.sleep(2 ** (attempt + 1))
+                    else:
+                        print(f"  [ERREUR] Batch {batch_idx+1} échoué après {retries} tentatives: {e}")
+
+            if (batch_idx + 1) % 2 == 0 or batch_idx == total_batches - 1:
+                print(f"  Batch {batch_idx+1}/{total_batches} — cache: {len(geocoded_cache)} adresses géocodées")
+
+            # Rate limiting
+            time.sleep(0.5)
+
+        # Appliquer le cache aux résultats
+        for i, (_, row) in enumerate(df.iterrows()):
+            addr = row['adresse_normalisee']
+            if addr in geocoded_cache:
+                results_lat[i], results_lon[i], results_score[i] = geocoded_cache[addr]
+
+        return results_lat, results_lon, results_score
+
+    print("Envoi des adresses à l'API BAN (batch)...")
+    lats, lons, scores = geocode_batch_api(dvf)
+    dvf['lat'] = lats
+    dvf['lon'] = lons
+
     geocoded_count = dvf['lat'].notna().sum()
-    print(f"Transactions géocodées : {geocoded_count} / {len(dvf)} ({geocoded_count/len(dvf)*100:.2f}%)")
+    print(f"Transactions géocodées : {geocoded_count} / {len(dvf)} ({geocoded_count/len(dvf)*100:.1f}%)")
     
     # 3. DPE
     print("--- Étape 3 : Appariement avec la base DPE ---")
@@ -167,12 +258,7 @@ def run_enrichment_pipeline():
     insee['CODGEO'] = insee['CODGEO'].astype(str)
     insee_lookup = insee.set_index('CODGEO')['Q221'].to_dict()
     
-    def get_insee_code(row):
-        dept = str(row['Code departement']).strip().split('.')[0].zfill(2)
-        comm = str(row['Code commune']).strip().split('.')[0].zfill(3)
-        return dept + comm
-        
-    dvf['code_insee'] = dvf.apply(get_insee_code, axis=1)
+    # (code_insee a déjà été créé à l'étape 2)
     dvf['insee_mediane_revenu'] = dvf['code_insee'].map(insee_lookup)
     
     # 5. KDTree POIs
@@ -188,9 +274,9 @@ def run_enrichment_pipeline():
     geo_coords = np.array([to_flat_coords(lon, lat) for lon, lat in zip(geo_df['lon'], geo_df['lat'])]) if len(geo_df) > 0 else np.array([])
     
     dvf['distance_ecole_m'] = np.nan
-    dvf['nom_ecole_proche'] = np.nan
+    dvf['nom_ecole_proche'] = None
     dvf['distance_transport_m'] = np.nan
-    dvf['nom_transport_proche'] = np.nan
+    dvf['nom_transport_proche'] = None
 
     if len(schools) > 0 and len(geo_coords) > 0:
         schools_coords = np.array([to_flat_coords(lon, lat) for lon, lat in zip(schools['lon'], schools['lat'])])
