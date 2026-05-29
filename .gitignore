@@ -3,3 +3,4 @@ __duckdb_export_temp__/*
 *.duckdb
 .venv/*
 modele_donnees.md
+.DS_Store
