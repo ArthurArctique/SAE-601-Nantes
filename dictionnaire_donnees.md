@@ -29,7 +29,8 @@ graph TD
     DC -- "🔑 code_commune = code_insee" --- DB
     DI -- "🔑 CODGEO = code_insee" --- FT
     DC -- "🔑 code_commune = code_insee_ban" --- DD
-    DB -. "🏠 géocodage adresse → lat/lon" .- FT
+    DB -. "🏠 référentiel (DPE)" .- DD
+    FT -. "🌐 API BAN → lat/lon" .- FT
     DE -. "📍 KDTree lat,lon" .- FT
     DT -. "📍 KDTree lat,lon" .- FT
     DP -. "📍 Point-in-Polygon" .- FT
@@ -125,7 +126,7 @@ graph TD
 
 ## 3. `dim_ban` — Dimension adresses (géocodage)
 
-> **Base Adresse Nationale** — référentiel de **581 326 adresses** du département 44. C'est la table qui permet le **géocodage** : transformer une adresse textuelle (numéro + voie + commune) en coordonnées géographiques (lat/lon). Sans cette table, le lien géographique entre une transaction et le monde réel est rompu.
+> **Base Adresse Nationale** — référentiel de **581 326 adresses** du département 44. Cette table est conservée pour l'intégrité globale du schéma (notamment comme référentiel pour les DPE). Le **géocodage** des transactions DVF est, quant à lui, effectué directement en amont via l'API BAN en Python (99.8% de succès).
 
 | Source | Lignes | Colonnes | Colonnes source originales |
 |--------|--------|----------|---------------------------|
@@ -157,10 +158,10 @@ graph TD
 ### Rôle dans le pipeline de géocodage
 
 ```
-DVF brut (adresse textuelle)          dim_ban (581k adresses)
+DVF brut (adresse textuelle)          API BAN (En Ligne - batch)
 ┌──────────────────────┐              ┌───────────────────────┐
-│ 12 Rue de la Paix    │  ──match──►  │ 12, Rue de la Paix    │
-│ 44000 Nantes         │              │ 44000, Nantes         │
+│ 12 Rue de la Paix    │ ─requête HTTP► │ 12, Rue de la Paix    │
+│ 44000 Nantes         │ ◄──réponse──── │ 44000, Nantes         │
 │ (pas de lat/lon)     │              │ lat=47.218, lon=-1.553│
 └──────────────────────┘              └───────────────────────┘
                                               │
@@ -179,7 +180,7 @@ DVF brut (adresse textuelle)          dim_ban (581k adresses)
 | Clé locale | → Table cible | Clé distante | Cardinalité | Description |
 |------------|---------------|--------------|-------------|-------------|
 | `code_insee` | `dim_communes` | `code_commune` | N adresses → 1 commune | Chaque adresse appartient à une commune |
-| Appariement adresse | `fait_transactions` | `adresse_normalisee` + `code_postal` | Géocodage | L'adresse de la transaction est cherchée dans la BAN pour obtenir lat/lon |
+| Appariement externe | (API BAN) | `adresse_normalisee` | Géocodage natif | L'adresse de la transaction est géocodée via l'API en amont pour obtenir lat/lon |
 
 ---
 
@@ -432,8 +433,8 @@ Certaines données de dimension sont **copiées directement** dans `fait_transac
 | Colonne dans `fait_transactions` | Source réelle | Table dimension | Pourquoi dénormalisé ? |
 |----------------------------------|---------------|-----------------|------------------------|
 | `insee_mediane_revenu` | `Q221` | `dim_insee` | Évite un JOIN pour la mesure la plus fréquemment utilisée |
-| `lat` | Géocodage BAN | `dim_ban` | Résultat de l'appariement adresse → coordonnées |
-| `lon` | Géocodage BAN | `dim_ban` | Idem |
+| `lat` | Géocodage API | `API BAN` | Résultat de la requête à l'API BAN |
+| `lon` | Géocodage API | `API BAN` | Idem |
 | `distance_ecole_m` | Calcul KDTree | `dim_ecoles` | Jointure spatiale non faisable en SQL standard |
 | `nom_ecole_proche` | `name` | `dim_ecoles` | Idem |
 | `distance_transport_m` | Calcul KDTree | `dim_transport` | Idem |
