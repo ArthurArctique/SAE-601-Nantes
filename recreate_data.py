@@ -296,35 +296,53 @@ if __name__ == '__main__':
             print(f"Erreur téléchargement BAN pour {dept}: {e}")
     ban_out.close()
 
-    # 3. DPE (Pagination API)
+    # 3. DPE (Multithreading par Code INSEE pour vitesse maximale)
+    import concurrent.futures
+    import threading
+
     dpe_cols = ['numero_dpe', 'etiquette_dpe', 'etiquette_ges', 'annee_construction', 'date_reception_dpe', 'numero_voie_ban', 'nom_rue_ban', 'nom_commune_ban', 'code_insee_ban', 'conso_5_usages_par_m2_ep']
     with open("data/dpe/dpe-multidept.csv", 'w', encoding='utf-8', newline='') as f:
         w = csv.writer(f)
         w.writerow(dpe_cols)
+        csv_lock = threading.Lock()
+        
         for dept in DEPARTEMENTS:
-            print(f"Téléchargement DPE pour le département {dept}...")
-            url = f"https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/lines?size=10000&q_mode=simple&qs=code_departement_ban:{dept}&format=json"
-            page = 1
+            print(f"Téléchargement DPE (Multithreadé) pour le département {dept}...")
             total_extracted = 0
-            while url:
-                print(f"  -> Récupération de la page {page} (taille lot: 10000)... ", end="", flush=True)
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                try:
-                    with urllib.request.urlopen(req) as res:
-                        data = json.loads(res.read())
-                        results = data.get('results', [])
-                        for row in results:
-                            w.writerow([row.get(c, '') for c in dpe_cols])
+            
+            # Générer la liste des 999 codes INSEE possibles pour un département (ex: 44001 à 44999)
+            insee_codes = [f"{dept}{str(i).zfill(3)}" for i in range(1, 1000)]
+            
+            def fetch_dpe_for_insee(code_insee):
+                nonlocal total_extracted
+                url = f"https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/lines?size=10000&q_mode=simple&qs=code_insee_ban:{code_insee}&format=json"
+                local_count = 0
+                while url:
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    try:
+                        with urllib.request.urlopen(req) as res:
+                            data = json.loads(res.read())
+                            results = data.get('results', [])
+                            if results:
+                                with csv_lock:
+                                    for row in results:
+                                        w.writerow([row.get(c, '') for c in dpe_cols])
+                                    total_extracted += len(results)
                             
-                        total_extracted += len(results)
-                        total_available = data.get('total', 'inconnu')
-                        print(f"OK ({len(results)} lignes). Cumul: {total_extracted} / {total_available}.")
-                        
-                        url = data.get('next')
-                        page += 1
-                except Exception as e:
-                    print(f"\n  [ERREUR] API ADEME DPE: {e}")
-                    break
+                            local_count += len(results)
+                            url = data.get('next')
+                    except Exception as e:
+                        # Si 404 ou 403, on ignore silencieusement
+                        break
+                
+                if local_count > 0:
+                    print(f"  -> {code_insee} OK ({local_count} DPE). Cumul dépt: {total_extracted}", end="\r", flush=True)
+
+            # Lancement de 30 threads en parallèle pour siphonner l'API à très grande vitesse
+            with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+                executor.map(fetch_dpe_for_insee, insee_codes)
+                
+            print(f"\n  -> Téléchargement DPE {dept} terminé ! Total: {total_extracted} DPE extraits.")
 
     # 4. INSEE
     zip_2021 = "data/old_insee/indic-struct-distrib-revenu-2021-COMMUNES_csv.zip"
