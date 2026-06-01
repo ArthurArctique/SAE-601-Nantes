@@ -1,5 +1,16 @@
 # SAE 2026 — Analyse du marché immobilier français
 
+## Mise en place de l'environnement
+
+Ouvrir un terminal et lancer la commande suivante :
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Utiliser de préférence la version de python indiqué dans le fichier .python-version
+
 ##  Objectif
 Développer un outil décisionnel permettant de répondre à la question :
 **Un bien immobilier est-il au bon prix (prix équitable) ?**
