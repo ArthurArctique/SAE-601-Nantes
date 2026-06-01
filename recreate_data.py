@@ -248,10 +248,13 @@ def run_enrichment_pipeline():
     print(">>> DVF ENRICHI SAUVEGARDE ! <<<")
 
 if __name__ == '__main__':
+    import time
+    start_time_global = time.time()
     for d in ["data/dvf", "data/ban", "data/dpe", "data/insee", "data/old_insee", "data/admin", "data/transport", "data/ecoles", "data/peb"]:
         os.makedirs(d, exist_ok=True)
 
     # 1. DVF
+    start_time_local = time.time()
     zip_dvf = "data/dvf/valeursfoncieres-2025.txt.zip"
     download("https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20260405-002321/valeursfoncieres-2025.txt.zip", zip_dvf)
     with zipfile.ZipFile(zip_dvf, 'r') as z:
@@ -269,7 +272,9 @@ if __name__ == '__main__':
     os.remove(zip_dvf)
     os.remove(txt_path)
 
+    print(f'\n[Timer] Etape 1 terminée en {time.time() - start_time_local:.2f} secondes.')
     # 2. BAN (téléchargement par département)
+    start_time_local = time.time()
     ban_out = open("data/ban/adresses-multidept.csv", 'w', encoding='utf-8')
     header_written = False
     for dept in DEPARTEMENTS:
@@ -288,7 +293,9 @@ if __name__ == '__main__':
             print(f"Erreur téléchargement BAN pour {dept}: {e}")
     ban_out.close()
 
+    print(f'\n[Timer] Etape 2 terminée en {time.time() - start_time_local:.2f} secondes.')
     # 3. DPE (Multithreading par Code INSEE pour vitesse maximale)
+    start_time_local = time.time()
     import concurrent.futures
     import threading
 
@@ -336,7 +343,9 @@ if __name__ == '__main__':
                 
             print(f"\n  -> Téléchargement DPE {dept} terminé ! Total: {total_extracted} DPE extraits.")
 
+    print(f'\n[Timer] Etape 3 terminée en {time.time() - start_time_local:.2f} secondes.')
     # 4. INSEE
+    start_time_local = time.time()
     zip_2021 = "data/old_insee/indic-struct-distrib-revenu-2021-COMMUNES_csv.zip"
     download("https://www.insee.fr/fr/statistiques/fichier/7756855/indic-struct-distrib-revenu-2021-COMMUNES_csv.zip", zip_2021)
     with zipfile.ZipFile(zip_2021, 'r') as z: z.extractall("data/old_insee")
@@ -345,7 +354,9 @@ if __name__ == '__main__':
     download("https://www.insee.fr/fr/statistiques/fichier/8984752/FILOSOFI_CC_csv.zip", zip_2023)
     with zipfile.ZipFile(zip_2023, 'r') as z: z.extractall("data/old_insee")
 
+    print(f'\n[Timer] Etape 4 terminée en {time.time() - start_time_local:.2f} secondes.')
     # 5. Communes GeoJSON
+    start_time_local = time.time()
     download("https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/communes.geojson", "data/admin/communes-france.geojson")
     with open("data/admin/communes-france.geojson", "r", encoding="utf-8") as f:
         communes_json = json.load(f)
@@ -353,7 +364,9 @@ if __name__ == '__main__':
     with open("data/admin/communes-multidept.geojson", "w", encoding="utf-8") as f:
         json.dump(communes_json, f)
 
+    print(f'\n[Timer] Etape 5 terminée en {time.time() - start_time_local:.2f} secondes.')
     # 6. Ecoles & Transport (Bases Officielles Data.gouv)
+    start_time_local = time.time()
     print("Téléchargement des Ecoles (Annuaire officiel)...")
     url_ecoles = "https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/fr-en-annuaire-education/exports/csv?lang=fr&timezone=Europe%2FBerlin&use_labels=true&delimiter=%3B"
     try:
@@ -432,7 +445,9 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"Erreur transports: {e}")
 
+    print(f'\n[Timer] Etape 6 terminée en {time.time() - start_time_local:.2f} secondes.')
     # 7. PEB
+    start_time_local = time.time()
     peb_features = []
     for dept in DEPARTEMENTS:
         params = {'service': 'WFS', 'version': '2.0.0', 'request': 'GetFeature', 'typeNames': 'wfs_sup:servitude', 'outputFormat': 'application/json', 'cql_filter': f"categorie='T5' AND partition LIKE '%_{dept}_%'"}
@@ -458,7 +473,11 @@ if __name__ == '__main__':
         with open("data/peb/peb-multidept.csv", 'w', newline='', encoding='utf-8') as f:
             f.write("gid;categorie;nomsup\n")
 
+    print(f'\n[Timer] Etape 7 terminée en {time.time() - start_time_local:.2f} secondes.')
     # 8. In-Process Consolidation & Enrichment
+    start_time_local = time.time()
     consolidate_insee()
     run_enrichment_pipeline()
+    print(f'\n[Timer] Etape 8 terminée en {time.time() - start_time_local:.2f} secondes.')
     print("Done!")
+    print(f'[Timer] Temps total global d\'exécution: {time.time() - start_time_global:.2f} secondes.')
