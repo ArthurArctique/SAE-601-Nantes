@@ -658,6 +658,13 @@ if selected_addr != "":
         closest_15 = pd.DataFrame()
         median_local_prix_m2 = 0.0
 
+    # 3. Données Transport (réseau ferré à moins de 1km)
+    distances_transport = np.sqrt(((df_transport["lat"] - lat) * 111.32)**2 + ((df_transport["lon"] - lon) * 80.0)**2) * 1000.0
+    df_trans_local = df_transport.copy()
+    df_trans_local["dist_m"] = distances_transport
+    df_trans_local = df_trans_local[df_trans_local["dist_m"] <= 1000.0].sort_values("dist_m")
+    df_trans_local = df_trans_local.drop_duplicates(subset=["name"])
+
     # Type de bâtiment
     b_type = "Appartement"
     if not rows_dvf.empty:
@@ -735,6 +742,114 @@ if selected_addr != "":
                     f"<tr style='border-bottom: 1px solid {_BORDER_CARD};'><td style='padding: 6px 0; color: {_TEXT_SECONDARY};'>Énergie chauffage</td><td style='padding: 6px 0; text-align: right; font-weight: bold;'>{chauffage}</td></tr>"
                     f"<tr style='border-bottom: 1px solid {_BORDER_CARD};'><td style='padding: 6px 0; color: {_TEXT_SECONDARY};'>Époque de construction</td><td style='padding: 6px 0; text-align: right; font-weight: bold;'>{construction}</td></tr>"
                     f"</table>", unsafe_allow_html=True)
+
+        # --- CALCUL ET RENDER DU SCORE D'ÉCO-ATTRACTIVITÉ SPATIALE ---
+        # 1. Calcul de la partie DPE
+        dpe_letter = str(dpe_record.get("etiquette_dpe", "D")).upper()
+        dpe_map = {"A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2, "G": 1}
+        dpe_score_val = dpe_map.get(dpe_letter, 4)
+        points_dpe = ((dpe_score_val - 1) / 6.0) * 50.0
+
+        # 2. Calcul de la partie Transport
+        if not df_trans_local.empty:
+            closest_dist_m = df_trans_local.iloc[0]["dist_m"]
+            if closest_dist_m <= 100.0:
+                points_trans = 50.0
+            elif closest_dist_m >= 1000.0:
+                points_trans = 0.0
+            else:
+                points_trans = 50.0 * (1.0 - (closest_dist_m - 100.0) / 900.0)
+        else:
+            closest_dist_m = None
+            points_trans = 0.0
+
+        # 3. Score total
+        eco_score = float(np.clip(points_dpe + points_trans, 0.0, 100.0))
+
+        # 4. Verdicts & colorations adaptatives (sans emojis)
+        if eco_score >= 80.0:
+            verdict = "Pépite Verte"
+            verdict_desc = "Ce bien immobilier présente une isolation remarquable couplée à une excellente accessibilité aux transports durables. C'est un logement à très faible impact carbone."
+            verdict_color = "#009E5F"
+            verdict_bg = "rgba(0, 158, 95, 0.08)"
+        elif eco_score >= 60.0:
+            verdict = "Éco-Performance Satisfaisante"
+            verdict_desc = "Un très bon équilibre entre la performance thermique et l'accès au réseau ferré. Le confort de vie est assuré et la mobilité douce est facilitée."
+            verdict_color = "#BACF11"
+            verdict_bg = "rgba(186, 207, 17, 0.08)"
+        elif eco_score >= 40.0:
+            verdict = "Éco-Performance Moyenne"
+            verdict_desc = "Le bien se situe dans la moyenne. Des pistes d'amélioration sont envisageables, soit au niveau de l'isolation thermique (DPE), soit de la connectivité ferroviaire."
+            verdict_color = "#FBBD08"
+            verdict_bg = "rgba(251, 189, 8, 0.08)"
+        else:
+            verdict = "Performance Environnementale Faible"
+            verdict_desc = "La performance globale est à optimiser. Ce logement est énergivore et/ou éloigné du réseau de transport ferré. Des travaux de rénovation thermique ou l'usage de modes de transport alternatifs sont préconisés."
+            verdict_color = "#F47D22"
+            verdict_bg = "rgba(244, 125, 34, 0.08)"
+
+        st.markdown("##### Score d'Éco-Attractivité")
+
+        # 5. Jauge Plotly Premium
+        fig_eco = go.Figure(go.Indicator(
+            mode = "gauge+number",
+            value = eco_score,
+            domain = {'x': [0, 1], 'y': [0, 1]},
+            title = {
+                'text': "<b>Score d'Éco-Attractivité</b>",
+                'font': {'size': 14, 'color': _TEXT_PRIMARY, 'family': '"Inter", sans-serif'}
+            },
+            number = {
+                'font': {'size': 28, 'color': verdict_color, 'family': '"Inter", sans-serif'},
+                'suffix': " / 100"
+            },
+            gauge = {
+                'axis': {
+                    'range': [0, 100],
+                    'tickwidth': 1,
+                    'tickcolor': _CHART_TEXT,
+                    'tickfont': {'color': _CHART_TEXT, 'size': 10}
+                },
+                'bar': {'color': "#d4af37", 'thickness': 0.25},
+                'bgcolor': "rgba(0,0,0,0)",
+                'borderwidth': 1,
+                'bordercolor': _BORDER_CARD,
+                'steps': [
+                    {'range': [0, 40], 'color': "rgba(244, 125, 34, 0.15)"},
+                    {'range': [40, 60], 'color': "rgba(251, 189, 8, 0.15)"},
+                    {'range': [60, 80], 'color': "rgba(186, 207, 17, 0.15)"},
+                    {'range': [80, 100], 'color': "rgba(0, 158, 95, 0.15)"}
+                ]
+            }
+        ))
+
+        fig_eco.update_layout(
+            margin=dict(l=15, r=15, t=40, b=15),
+            height=160,
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
+        )
+
+        st.plotly_chart(fig_eco, use_container_width=True, config={'displayModeBar': False})
+
+        # 6. Rendu HTML de la Fiche Descriptive (non-indented multiline HTML formatting)
+        verdict_html = (
+            f"<div style='background: {verdict_bg}; border: 1px solid {verdict_color}44; "
+            f"border-left: 5px solid {verdict_color}; border-radius: 8px; padding: 12px 14px; "
+            f"font-family: \"Inter\", sans-serif; margin-bottom: 20px; box-shadow: 0 2px 6px {_SHADOW_CARD};'>"
+            f"<div style='font-size: 13px; font-weight: 800; color: {verdict_color}; margin-bottom: 6px;'>"
+            f"{verdict.upper()}"
+            f"</div>"
+            f"<div style='font-size: 12px; line-height: 1.5; color: {_TEXT_PRIMARY}; margin-bottom: 10px;'>"
+            f"{verdict_desc}"
+            f"</div>"
+            f"<div style='display: flex; justify-content: space-between; font-size: 11px; border-top: 1px solid {verdict_color}22; padding-top: 8px;'>"
+            f"<span style='color: {_TEXT_SECONDARY};'>Performance DPE : <b>{points_dpe:.1f} / 50</b></span>"
+            f"<span style='color: {_TEXT_SECONDARY};'>Réseau ferré : <b>{points_trans:.1f} / 50</b></span>"
+            f"</div>"
+            f"</div>"
+        )
+        st.markdown(verdict_html, unsafe_allow_html=True)
 
     # === COLONNE DROITE : Valorisation & Comparatif ===
     with col2:
@@ -851,12 +966,8 @@ if selected_addr != "":
             pickable=True,
         )
         
-        # Transports locaux
-        distances_transport = np.sqrt(((df_transport["lat"] - lat) * 111.32)**2 + ((df_transport["lon"] - lon) * 80.0)**2) * 1000.0
-        df_trans_local = df_transport.copy()
-        df_trans_local["dist_m"] = distances_transport
-        df_trans_local = df_trans_local[df_trans_local["dist_m"] <= 1000.0].sort_values("dist_m")
-        df_trans_local = df_trans_local.drop_duplicates(subset=["name"])
+        # Transports locaux (déjà calculés en haut de la fiche d'analyse)
+        pass
         
         layer_trans_local = pdk.Layer(
             "ScatterplotLayer",
@@ -926,6 +1037,263 @@ if selected_addr != "":
             st.markdown(trans_html, unsafe_allow_html=True)
         else:
             st.info("Aucune station du réseau ferré (tram/train) à moins de 1 kilomètre de cette adresse.")
+
+    # === SECTION DU BAS 2 : Simulateur de Financement ===
+    st.markdown("---")
+    st.markdown("#### Simulateur de Financement & Mensualités de Crédit")
+    
+    # Détermination du prix de base pour l'adresse
+    if not rows_dvf.empty:
+        base_price = float(rows_dvf.iloc[0]["valeur_fonciere"])
+    else:
+        default_surf = dpe_record.get("surface_habitable_logement", 70.0)
+        if pd.isna(default_surf) or default_surf <= 0:
+            default_surf = 70.0
+        base_price = float(building_prix_m2 * default_surf)
+    
+    base_price = float(round(base_price / 5000.0) * 5000.0)
+    if base_price < 10000.0:
+        base_price = 150000.0
+        
+    col_sim_in, col_sim_out = st.columns([1, 1], gap="large")
+    
+    with col_sim_in:
+        sim_price = st.number_input(
+            "Prix du bien (EUR) :",
+            min_value=10000.0,
+            max_value=5000000.0,
+            value=base_price,
+            step=5000.0,
+            key=f"sim_price_{selected_addr}"
+        )
+        
+        default_apport = float(min(round(sim_price * 0.15 / 5000.0) * 5000.0, sim_price))
+        sim_apport = st.number_input(
+            "Apport personnel (EUR) :",
+            min_value=0.0,
+            max_value=sim_price,
+            value=default_apport,
+            step=5000.0,
+            key=f"sim_apport_{selected_addr}"
+        )
+        
+        sim_duree = st.slider(
+            "Durée de l'emprunt (années) :",
+            min_value=5,
+            max_value=30,
+            value=20,
+            step=1,
+            key=f"sim_duree_{selected_addr}"
+        )
+        
+        sim_taux = st.slider(
+            "Taux d'intérêt fixe (%) :",
+            min_value=0.1,
+            max_value=10.0,
+            value=3.7,
+            step=0.1,
+            key=f"sim_taux_{selected_addr}"
+        )
+        
+    with col_sim_out:
+        montant_emprunt = max(0.0, sim_price - sim_apport)
+        if montant_emprunt == 0.0:
+            mensualite = 0.0
+            cout_credit = 0.0
+        else:
+            if sim_taux == 0.0:
+                mensualite = montant_emprunt / (sim_duree * 12.0)
+            else:
+                monthly_rate = (sim_taux / 100.0) / 12.0
+                nb_months = sim_duree * 12
+                mensualite = montant_emprunt * (monthly_rate * (1.0 + monthly_rate)**nb_months) / ((1.0 + monthly_rate)**nb_months - 1.0)
+            cout_credit = (mensualite * sim_duree * 12.0) - montant_emprunt
+            
+        frais_notaire = sim_price * 0.075
+        
+        mens_str = f"{mensualite:,.0f}".replace(",", " ")
+        emprunt_str = f"{montant_emprunt:,.0f}".replace(",", " ")
+        cout_str = f"{cout_credit:,.0f}".replace(",", " ")
+        notaire_str = f"{frais_notaire:,.0f}".replace(",", " ")
+        
+        sim_card_html = (
+            f"<div style='background: {_BG_CARD}; border: 1px solid {_BORDER_CARD}; "
+            f"border-left: 5px solid #d4af37; border-radius: 8px; padding: 20px 24px; "
+            f"box-shadow: 0 4px 10px {_SHADOW_CARD}; height: 100%; display: flex; "
+            f"flex-direction: column; justify-content: center; font-family: \"Inter\", sans-serif;'>"
+            f"<div style='font-size: 11px; font-weight: 800; color: {_TEXT_SECONDARY}; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;'>Mensualité Estimée</div>"
+            f"<div style='font-size: 28px; font-weight: 900; color: #d4af37; margin-bottom: 16px;'>{mens_str} € / mois</div>"
+            f"<div style='font-size: 13px; color: {_TEXT_PRIMARY}; margin-bottom: 8px;'>Montant emprunté : <b>{emprunt_str} €</b></div>"
+            f"<div style='font-size: 13px; color: {_TEXT_PRIMARY}; margin-bottom: 8px;'>Coût du crédit : <b>{cout_str} €</b></div>"
+            f"<div style='font-size: 13px; color: {_TEXT_PRIMARY}; margin-bottom: 8px;'>Frais de notaire est. (7.5%) : <b>{notaire_str} €</b></div>"
+            f"<div style='font-size: 10px; color: {_TEXT_MUTED}; margin-top: 14px; line-height: 1.3;'>Calcul indicatif hors assurance emprunteur. Taux nominal annuel fixe de {sim_taux:.2f}%.</div>"
+            f"</div>"
+        )
+        st.markdown(sim_card_html, unsafe_allow_html=True)
+
+    # === SECTION DU BAS 3 : Analyses Avancées ===
+    st.markdown("---")
+    col_radar, col_hist = st.columns([1, 1], gap="large")
+    
+    with col_radar:
+        st.markdown("#### Radar d'Attractivité Multicritères")
+        
+        # 1. Calculs des scores des axes
+        # Axe 1 : Budget (Prix au m² compétitif)
+        if building_prix_m2 > 0:
+            score_budget = float(np.clip(100.0 * (median_nantes_prix_m2 / building_prix_m2), 10.0, 100.0))
+        else:
+            score_budget = 50.0
+            
+        # Axe 2 : Énergie (Confort thermique DPE)
+        score_energie = float(np.clip(points_dpe * 2.0, 0.0, 100.0))
+        
+        # Axe 3 : Transports (Accessibilité réseau ferré)
+        score_transport = float(np.clip(points_trans * 2.0, 0.0, 100.0))
+        
+        # Axe 4 : Espace (Surface du logement par rapport au quartier)
+        if not closest_15.empty:
+            median_local_surface = closest_15["surface_m2"].median()
+        else:
+            median_local_surface = 0.0
+            
+        default_surf = dpe_record.get("surface_habitable_logement", 70.0)
+        if pd.isna(default_surf) or default_surf <= 0:
+            default_surf = 70.0
+            
+        if median_local_surface > 0:
+            score_espace = float(np.clip(50.0 + (default_surf - median_local_surface) * 2.0, 10.0, 100.0))
+        else:
+            score_espace = 70.0
+            
+        categories = ["Budget", "Confort Énergie", "Accès Transport", "Espace Habitable"]
+        scores = [score_budget, score_energie, score_transport, score_espace]
+        
+        # Fermer la boucle du radar
+        categories_closed = categories + [categories[0]]
+        scores_closed = scores + [scores[0]]
+        
+        # 2. Dessiner le radar avec Plotly (avec une couleur RGBA transparente valide)
+        radar_fill_map = {
+            "#009E5F": "rgba(0, 158, 95, 0.25)",
+            "#BACF11": "rgba(186, 207, 17, 0.25)",
+            "#FBBD08": "rgba(251, 189, 8, 0.25)",
+            "#F47D22": "rgba(244, 125, 34, 0.25)"
+        }
+        radar_fillcolor = radar_fill_map.get(verdict_color, "rgba(212, 175, 55, 0.25)")
+        
+        fig_radar = go.Figure()
+        fig_radar.add_trace(go.Scatterpolar(
+            r=scores_closed,
+            theta=categories_closed,
+            fill='toself',
+            fillcolor=radar_fillcolor,
+            line=dict(color=verdict_color, width=2),
+            marker=dict(color=verdict_color, size=6),
+            showlegend=False
+        ))
+        
+        fig_radar.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 100],
+                    tickfont=dict(color=_CHART_TEXT, size=9),
+                    gridcolor=_CHART_GRID,
+                    linecolor=_CHART_GRID
+                ),
+                angularaxis=dict(
+                    tickfont=dict(color=_TEXT_PRIMARY, size=11, weight='bold'),
+                    gridcolor=_CHART_GRID
+                ),
+                bgcolor='rgba(0,0,0,0)'
+            ),
+            margin=dict(l=40, r=40, t=30, b=30),
+            height=300,
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
+        )
+        st.plotly_chart(fig_radar, use_container_width=True, config={'displayModeBar': False})
+        
+    with col_hist:
+        st.markdown("#### Évolution Historique des Ventes (2025)")
+        
+        # 1. Extraction et formatage des données temporelles
+        # Local (1 km)
+        distances_all = np.sqrt(((df_dvf["lat"] - lat) * 111.32)**2 + ((df_dvf["lon"] - lon) * 80.0)**2) * 1000.0
+        df_dvf_1k = df_dvf[distances_all <= 1000.0].copy()
+        
+        df_dvf_1k["date_dt"] = pd.to_datetime(df_dvf_1k["date_mutation"], format="%d/%m/%Y", errors="coerce")
+        df_dvf_1k = df_dvf_1k.dropna(subset=["date_dt"])
+        df_dvf_1k = df_dvf_1k.sort_values("date_dt")
+        
+        MONTH_MAP = {
+            1: "Jan", 2: "Fév", 3: "Mar", 4: "Avr", 5: "Mai", 6: "Juin",
+            7: "Juil", 8: "Août", 9: "Sept", 10: "Oct", 11: "Nov", 12: "Déc"
+        }
+        
+        df_dvf_1k["Mois_Num"] = df_dvf_1k["date_dt"].dt.month
+        df_dvf_1k["Mois"] = df_dvf_1k["Mois_Num"].map(MONTH_MAP)
+        
+        df_trend_local = df_dvf_1k.groupby(["Mois_Num", "Mois"])["prix_m2"].median().reset_index().sort_values("Mois_Num")
+        
+        # Global (Nantes)
+        df_dvf_all = df_dvf.copy()
+        df_dvf_all["date_dt"] = pd.to_datetime(df_dvf_all["date_mutation"], format="%d/%m/%Y", errors="coerce")
+        df_dvf_all = df_dvf_all.dropna(subset=["date_dt"])
+        df_dvf_all["Mois_Num"] = df_dvf_all["date_dt"].dt.month
+        df_dvf_all["Mois"] = df_dvf_all["Mois_Num"].map(MONTH_MAP)
+        
+        df_trend_global = df_dvf_all.groupby(["Mois_Num", "Mois"])["prix_m2"].median().reset_index().sort_values("Mois_Num")
+        
+        # 2. Dessiner le graphique linéaire comparatif
+        fig_trend = go.Figure()
+        
+        if not df_trend_global.empty:
+            fig_trend.add_trace(go.Scatter(
+                x=df_trend_global["Mois"],
+                y=df_trend_global["prix_m2"],
+                mode='lines+markers',
+                name='Moyenne Ville (Nantes)',
+                line=dict(color='#94a3b8', width=2, dash='dash'),
+                marker=dict(color='#94a3b8', size=5)
+            ))
+            
+        if not df_trend_local.empty:
+            fig_trend.add_trace(go.Scatter(
+                x=df_trend_local["Mois"],
+                y=df_trend_local["prix_m2"],
+                mode='lines+markers',
+                name='Micro-Quartier (1 km)',
+                line=dict(color='#d4af37', width=3),
+                marker=dict(color='#d4af37', size=6)
+            ))
+            
+        fig_trend.update_layout(
+            margin=dict(l=40, r=20, t=20, b=40),
+            height=300,
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            xaxis=dict(
+                showgrid=False,
+                tickfont=dict(color=_CHART_TEXT, size=10)
+            ),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor=_CHART_GRID,
+                tickfont=dict(color=_CHART_TEXT, size=10),
+                ticksuffix=' €/m²'
+            ),
+            legend=dict(
+                orientation='h',
+                yanchor='bottom',
+                y=1.02,
+                xanchor='right',
+                x=1.0,
+                font=dict(color=_TEXT_PRIMARY, size=10)
+            )
+        )
+        st.plotly_chart(fig_trend, use_container_width=True, config={'displayModeBar': False})
 
     st.stop()
 
