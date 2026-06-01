@@ -25,15 +25,7 @@ def download(url, path):
     with urllib.request.urlopen(req) as response, open(path, 'wb') as out:
         shutil.copyfileobj(response, out)
 
-def query_overpass(query):
-    for endpoint in ["https://overpass.kumi.systems/api/interpreter", "https://lz4.overpass-api.de/api/interpreter", "https://overpass.openstreetmap.fr/api/interpreter"]:
-        try:
-            req = urllib.request.Request(endpoint + "?data=" + urllib.parse.quote(f"[out:json][timeout:180];{query}"), headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=180) as res:
-                return json.loads(res.read().decode('utf-8')).get('elements', [])
-        except Exception:
-            continue
-    return []
+
 
 def consolidate_insee():
     print("\n=== DEBUT DE LA CONSOLIDATION DES DONNEES INSEE ===")
@@ -361,25 +353,84 @@ if __name__ == '__main__':
     with open("data/admin/communes-multidept.geojson", "w", encoding="utf-8") as f:
         json.dump(communes_json, f)
 
-    # 6. Ecoles & Transport (Overpass avec zone administrative)
-    with open("data/ecoles/ecoles-multidept.csv", 'w', newline='', encoding='utf-8') as fe, open("data/transport/stations-multidept.csv", 'w', newline='', encoding='utf-8') as ft:
-        we = csv.writer(fe, delimiter=';')
-        we.writerow(['osm_id', 'type', 'lat', 'lon', 'name', 'city', 'postcode', 'amenity'])
-        wt = csv.writer(ft, delimiter=';')
-        wt.writerow(['osm_id', 'lat', 'lon', 'name', 'railway_type', 'operator', 'network', 'uic_ref'])
+    # 6. Ecoles & Transport (Bases Officielles Data.gouv)
+    print("Téléchargement des Ecoles (Annuaire officiel)...")
+    url_ecoles = "https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/fr-en-annuaire-education/exports/csv?lang=fr&timezone=Europe%2FBerlin&use_labels=true&delimiter=%3B"
+    try:
+        df_ecoles = pd.read_csv(url_ecoles, sep=';', low_memory=False)
+        df_ecoles = df_ecoles.dropna(subset=['Position'])
+        df_ecoles['lat'] = df_ecoles['Position'].apply(lambda x: float(str(x).split(',')[0]) if ',' in str(x) else np.nan)
+        df_ecoles['lon'] = df_ecoles['Position'].apply(lambda x: float(str(x).split(',')[1]) if ',' in str(x) else np.nan)
+        df_ecoles = df_ecoles[df_ecoles['Code département'].astype(str).str.zfill(2).isin(DEPARTEMENTS)]
         
-        for dept in DEPARTEMENTS:
-            print(f"Overpass écoles pour {dept}...")
-            q_ecoles = f'area["ref:INSEE"="{dept}"]["admin_level"="6"]->.searchArea; (node["amenity"="school"](area.searchArea);way["amenity"="school"](area.searchArea););out center;'
-            for e in query_overpass(q_ecoles):
-                lat = e.get('lat') if e.get('type') == 'node' else e.get('center', {}).get('lat')
-                lon = e.get('lon') if e.get('type') == 'node' else e.get('center', {}).get('lon')
-                we.writerow([e.get('id'), e.get('type'), lat, lon, e.get('tags', {}).get('name', ''), e.get('tags', {}).get('addr:city', ''), e.get('tags', {}).get('addr:postcode', ''), e.get('tags', {}).get('amenity', 'school')])
+        df_ecoles_out = pd.DataFrame({
+            'osm_id': df_ecoles['Identifiant de l\'établissement'],
+            'type': df_ecoles['Type d\'établissement'],
+            'lat': df_ecoles['lat'],
+            'lon': df_ecoles['lon'],
+            'name': df_ecoles['Nom de l\'établissement'],
+            'city': df_ecoles['Nom de la commune'],
+            'postcode': df_ecoles['Code postal'],
+            'amenity': 'school'
+        })
+        os.makedirs("data/ecoles", exist_ok=True)
+        df_ecoles_out.to_csv("data/ecoles/ecoles-multidept.csv", sep=';', index=False)
+        print(f"-> Ecoles OK : {len(df_ecoles_out)} établissements.")
+    except Exception as e:
+        print(f"Erreur écoles: {e}")
+
+    print("Téléchargement des Transports (Arrêts France)...")
+    try:
+        req = urllib.request.Request("https://www.data.gouv.fr/api/1/datasets/arrets-de-transport-en-france/", headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as res:
+            data = json.loads(res.read())
+            url_transports = [r['url'] for r in data['resources'] if 'csv' in r['format'].lower()][0]
+            
+        df_trans = pd.read_csv(url_transports, low_memory=False)
+        df_trans = df_trans.dropna(subset=['stop_lat', 'stop_lon'])
+        
+        if os.path.exists("data/admin/communes-multidept.geojson"):
+            import json
+            from shapely.geometry import Point, shape
+            with open("data/admin/communes-multidept.geojson", 'r') as f:
+                communes = json.load(f)
+            polys = [shape(feat['geometry']) for feat in communes.get('features', []) if feat.get('geometry')]
+            
+            if polys:
+                print("  Filtrage spatial des arrêts de transport en cours...")
+                minx = min([p.bounds[0] for p in polys])
+                miny = min([p.bounds[1] for p in polys])
+                maxx = max([p.bounds[2] for p in polys])
+                maxy = max([p.bounds[3] for p in polys])
                 
-            print(f"Overpass transports pour {dept}...")
-            q_trans = f'area["ref:INSEE"="{dept}"]["admin_level"="6"]->.searchArea; (node["railway"="station"](area.searchArea);node["railway"="halt"](area.searchArea);node["railway"="tram_stop"](area.searchArea););out;'
-            for e in query_overpass(q_trans):
-                wt.writerow([e.get('id'), e.get('lat'), e.get('lon'), e.get('tags', {}).get('name', ''), e.get('tags', {}).get('railway', ''), e.get('tags', {}).get('operator', ''), e.get('tags', {}).get('network', ''), e.get('tags', {}).get('uic_ref', '')])
+                df_trans = df_trans[
+                    (df_trans['stop_lon'] >= minx) & (df_trans['stop_lon'] <= maxx) &
+                    (df_trans['stop_lat'] >= miny) & (df_trans['stop_lat'] <= maxy)
+                ]
+                
+                from shapely.strtree import STRtree
+                tree = STRtree(polys)
+                def in_poly(lon, lat):
+                    pt = Point(lon, lat)
+                    return len(tree.query(pt)) > 0
+                mask = df_trans.apply(lambda r: in_poly(r['stop_lon'], r['stop_lat']), axis=1)
+                df_trans = df_trans[mask]
+        
+        df_trans_out = pd.DataFrame({
+            'osm_id': df_trans['stop_id'],
+            'lat': df_trans['stop_lat'],
+            'lon': df_trans['stop_lon'],
+            'name': df_trans['stop_name'],
+            'railway_type': 'station',
+            'operator': '',
+            'network': '',
+            'uic_ref': ''
+        })
+        os.makedirs("data/transport", exist_ok=True)
+        df_trans_out.to_csv("data/transport/stations-multidept.csv", sep=';', index=False)
+        print(f"-> Transports OK : {len(df_trans_out)} arrêts.")
+    except Exception as e:
+        print(f"Erreur transports: {e}")
 
     # 7. PEB
     peb_features = []
