@@ -4,3 +4,4 @@ data/*
 __duckdb_export_temp__/*
 .venv/*
 .DS_Store
+__pycache__/*
