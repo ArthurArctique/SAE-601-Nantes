@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pydeck as pdk
-from pyproj import Transformer
+import json
 import math
 import random
 import plotly.graph_objects as go
@@ -12,49 +12,91 @@ import plotly.graph_objects as go
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="Observatoire Foncier Nantes",
-    page_icon="🏡",
+    page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ---------------------------------------------------------------------------
-# CSS PERSONNALISÉ DÈS LE CHARGEMENT (Évite le flash sombre/clair)
+# THÈME CLAIR / SOMBRE (toggle dans la sidebar)
 # ---------------------------------------------------------------------------
-st.markdown("""
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+is_dark = st.session_state.dark_mode
+
+# Palettes dynamiques
+if is_dark:
+    _BG_MAIN = "#0f172a"
+    _BG_SIDEBAR = "#1e293b"
+    _BG_CARD = "#1e293b"
+    _BORDER_CARD = "#334155"
+    _TEXT_PRIMARY = "#f1f5f9"
+    _TEXT_SECONDARY = "#94a3b8"
+    _TEXT_MUTED = "#64748b"
+    _SHADOW_CARD = "rgba(0,0,0,0.30)"
+    _BORDER_SIDEBAR = "#334155"
+    _SCROLLBAR = "#475569"
+    _HOVER_SHADOW = "rgba(212,175,55,0.25)"
+    _CHART_GRID = "#334155"
+    _CHART_TEXT = "#94a3b8"
+    _CHART_LINE = "#475569"
+    _HEADER_BORDER = "#334155"
+    _SIDEBAR_H3_BG = "#0f172a"
+    _SIDEBAR_H3_TEXT = "#f1f5f9"
+    _SIDEBAR_TEXT = "#e2e8f0"
+else:
+    _BG_MAIN = "#ffffff"
+    _BG_SIDEBAR = "#f1f5f9"
+    _BG_CARD = "#ffffff"
+    _BORDER_CARD = "#e8e8e8"
+    _TEXT_PRIMARY = "#111827"
+    _TEXT_SECONDARY = "#666666"
+    _TEXT_MUTED = "#aaaaaa"
+    _SHADOW_CARD = "rgba(0,0,0,0.05)"
+    _BORDER_SIDEBAR = "#cbd5e1"
+    _SCROLLBAR = "#cccccc"
+    _HOVER_SHADOW = "rgba(0,0,0,0.08)"
+    _CHART_GRID = "#e2e8f0"
+    _CHART_TEXT = "#64748b"
+    _CHART_LINE = "#cbd5e1"
+    _HEADER_BORDER = "#f0f0f0"
+    _SIDEBAR_H3_BG = "#ffffff"
+    _SIDEBAR_H3_TEXT = "#1e293b"
+    _SIDEBAR_TEXT = "#000000"
+
+# ---------------------------------------------------------------------------
+# CSS PERSONNALISÉ DÈS LE CHARGEMENT
+# ---------------------------------------------------------------------------
+st.markdown(f"""
 <style>
 /* Animation d'apparition fluide et élégante (Fade In & Slide Up) */
-@keyframes fadeInUp {
-    from {
-        opacity: 0;
-        transform: translateY(12px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-/* Appliquer aux conteneurs de colonnes (liste & carte) pour une entrée en douceur */
-[data-testid="column"] {
+@keyframes fadeInUp {{
+    from {{ opacity: 0; transform: translateY(12px); }}
+    to {{ opacity: 1; transform: translateY(0); }}
+}}
+[data-testid="column"] {{
     animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
+}}
 
-/* Override de style pour forcer l'interface principale en blanc et la barre latérale en blanc un peu plus sombre */
-.stApp {
-    background-color: #ffffff !important;
-}
-/* Forcer les textes généraux et titres de l'application en noir */
-.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp p, .stApp li, .stApp span:not(.prop-badge) {
-    color: #111827 !important;
-}
-/* Forcer le texte des onglets (tabs) en noir */
-button[data-baseweb="tab"] p, button[data-baseweb="tab"] span {
-    color: #111827 !important;
-}
-[data-testid="stSidebar"] {
-    background-color: #f1f5f9 !important; /* blanc un peu plus sombre (Slate 100) */
-    border-right: 1px solid #cbd5e1;
-}
-/* Forcer les textes et titres de la barre de filtres en noir */
+/* Fond principal */
+.stApp {{
+    background-color: {_BG_MAIN} !important;
+    transition: background-color 0.3s ease;
+}}
+/* Textes généraux */
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp p, .stApp li, .stApp span:not(.prop-badge) {{
+    color: {_TEXT_PRIMARY} !important;
+}}
+button[data-baseweb="tab"] p, button[data-baseweb="tab"] span {{
+    color: {_TEXT_PRIMARY} !important;
+}}
+
+/* Sidebar */
+[data-testid="stSidebar"] {{
+    background-color: {_BG_SIDEBAR} !important;
+    border-right: 1px solid {_BORDER_SIDEBAR};
+    transition: background-color 0.3s ease;
+}}
 [data-testid="stSidebar"] p,
 [data-testid="stSidebar"] label,
 [data-testid="stSidebar"] h1,
@@ -62,94 +104,92 @@ button[data-baseweb="tab"] p, button[data-baseweb="tab"] span {
 [data-testid="stSidebar"] h4,
 [data-testid="stSidebar"] h5,
 [data-testid="stSidebar"] h6,
-[data-testid="stSidebar"] span {
-    color: #000000 !important;
-}
-
-/* Style des titres de section (h3) dans la barre de filtres (rectangles arrondis blancs avec ombre) */
-[data-testid="stSidebar"] h3 {
-    background-color: #ffffff !important;
-    color: #1e293b !important;
+[data-testid="stSidebar"] span {{
+    color: {_SIDEBAR_TEXT} !important;
+}}
+[data-testid="stSidebar"] h3 {{
+    background-color: {_SIDEBAR_H3_BG} !important;
+    color: {_SIDEBAR_H3_TEXT} !important;
     padding: 8px 12px !important;
     border-radius: 8px !important;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06) !important;
+    box-shadow: 0 4px 10px {_SHADOW_CARD} !important;
     font-size: 13px !important;
     font-weight: 700 !important;
     text-transform: uppercase !important;
     letter-spacing: 0.5px !important;
-    border-left: 4px solid #d4af37 !important; /* Ligne dorée premium sur le côté */
+    border-left: 4px solid #d4af37 !important;
     margin-top: 20px !important;
     margin-bottom: 12px !important;
-}
+}}
 
-/* Forcer les étiquettes (pills) du multiselect en doré / gold avec texte noir et croix noire */
-div[data-baseweb="tag"], span[data-baseweb="tag"] {
+/* Tags / pills */
+div[data-baseweb="tag"], span[data-baseweb="tag"] {{
     background-color: #d4af37 !important;
     color: #000000 !important;
     border-radius: 4px !important;
-}
-div[data-baseweb="tag"] *, span[data-baseweb="tag"] * {
+}}
+div[data-baseweb="tag"] *, span[data-baseweb="tag"] * {{
     color: #000000 !important;
     fill: #000000 !important;
-}
+}}
 
 /* Scrollable property list */
-.property-list {
+.property-list {{
     max-height: 750px;
     overflow-y: auto;
     padding-right: 8px;
-}
-.property-list::-webkit-scrollbar { width: 6px; }
-.property-list::-webkit-scrollbar-thumb {
-    background: #ccc; border-radius: 3px;
-}
+}}
+.property-list::-webkit-scrollbar {{ width: 6px; }}
+.property-list::-webkit-scrollbar-thumb {{
+    background: {_SCROLLBAR}; border-radius: 3px;
+}}
 
 /* Property card */
-.prop-card {
-    background: #fff;
-    border: 1px solid #e8e8e8;
+.prop-card {{
+    background: {_BG_CARD};
+    border: 1px solid {_BORDER_CARD};
     border-radius: 10px;
     padding: 16px;
     margin-bottom: 12px;
     transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     font-family: 'Inter', 'Segoe UI', sans-serif;
     animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-.prop-card:hover {
-    box-shadow: 0 10px 25px rgba(0,0,0,0.08) !important;
+}}
+.prop-card:hover {{
+    box-shadow: 0 10px 25px {_HOVER_SHADOW} !important;
     border-color: #d4af37 !important;
-    transform: translateY(-2px) !important; /* Léger soulèvement moderne */
-}
-.prop-price {
+    transform: translateY(-2px) !important;
+}}
+.prop-price {{
     font-size: 20px;
     font-weight: 800;
-    color: #1a1a2e;
+    color: {_TEXT_PRIMARY};
     margin: 0;
-}
-.prop-price-m2 {
+}}
+.prop-price-m2 {{
     font-size: 13px;
     font-weight: 600;
-    color: #888;
+    color: {_TEXT_SECONDARY};
     margin: 0 0 6px 0;
-}
-.prop-type {
+}}
+.prop-type {{
     font-size: 14px;
     font-weight: 700;
-    color: #333;
+    color: {_TEXT_PRIMARY};
     margin: 4px 0 2px 0;
-}
-.prop-details {
+}}
+.prop-details {{
     font-size: 12.5px;
-    color: #666;
+    color: {_TEXT_SECONDARY};
     margin: 2px 0;
     line-height: 1.5;
-}
-.prop-date {
+}}
+.prop-date {{
     font-size: 11px;
-    color: #aaa;
+    color: {_TEXT_MUTED};
     margin-top: 4px;
-}
-.prop-badge {
+}}
+.prop-badge {{
     display: inline-block;
     padding: 2px 8px;
     border-radius: 4px;
@@ -157,79 +197,79 @@ div[data-baseweb="tag"] *, span[data-baseweb="tag"] * {
     font-weight: 700;
     color: #fff;
     margin-right: 6px;
-}
-.badge-maison { background: #e67e22; }
-.badge-appart { background: #3498db; }
+}}
+.badge-maison {{ background: #e67e22; }}
+.badge-appart {{ background: #3498db; }}
 
 /* Header bar style */
-.seloger-header {
+.seloger-header {{
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 10px 0;
-    border-bottom: 2px solid #f0f0f0;
+    border-bottom: 2px solid {_HEADER_BORDER};
     margin-bottom: 16px;
     background: transparent;
-}
-.seloger-count {
+}}
+.seloger-count {{
     font-size: 18px;
     font-weight: 800;
-    color: #000000 !important; /* Texte noir! */
-}
+    color: {_TEXT_PRIMARY} !important;
+}}
 
-/* Style des conteneurs de graphiques de synthèse (cards blancs premiums avec ombre) */
-.chart-card {
-    background: #ffffff !important;
-    border: 1px solid #e2e8f0 !important;
+/* Chart cards */
+.chart-card {{
+    background: {_BG_CARD} !important;
+    border: 1px solid {_BORDER_CARD} !important;
     border-radius: 12px !important;
     padding: 20px 24px !important;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05) !important;
+    box-shadow: 0 4px 20px {_SHADOW_CARD} !important;
     margin-bottom: 24px !important;
-    border-left: 5px solid #d4af37 !important; /* Liseré doré de signature */
-}
-.chart-title {
+    border-left: 5px solid #d4af37 !important;
+}}
+.chart-title {{
     font-size: 18px !important;
     font-weight: 800 !important;
-    color: #0f172a !important;
+    color: {_TEXT_PRIMARY} !important;
     margin: 0 0 6px 0 !important;
     padding: 0 !important;
-}
-.chart-subtitle {
+}}
+.chart-subtitle {{
     font-size: 13px !important;
-    color: #64748b !important;
+    color: {_TEXT_SECONDARY} !important;
     margin: 0 0 16px 0 !important;
     line-height: 1.4 !important;
-}
+}}
 
-/* Styling de l'avis de prix tout en haut */
-.advisor-box {
-    background: #ffffff !important;
-    border: 1px solid #e2e8f0 !important;
+/* Advisor box */
+.advisor-box {{
+    background: {_BG_CARD} !important;
+    border: 1px solid {_BORDER_CARD} !important;
     border-radius: 12px !important;
     padding: 16px 20px !important;
     margin-bottom: 20px !important;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04) !important;
+    box-shadow: 0 4px 15px {_SHADOW_CARD} !important;
     font-family: 'Inter', 'Segoe UI', sans-serif !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 8px !important;
-}
-.advisor-header {
+}}
+.advisor-header {{
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
     flex-wrap: wrap !important;
     gap: 10px !important;
-}
-.advisor-project-title {
+}}
+.advisor-project-title {{
     font-size: 13px !important;
     font-weight: 800 !important;
     text-transform: uppercase !important;
     letter-spacing: 0.5px !important;
-    color: #64748b !important;
+    color: {_TEXT_SECONDARY} !important;
     margin: 0 !important;
-}
-.advisor-badge-pill {
+}}
+.advisor-badge-pill {{
     display: inline-block !important;
     padding: 4px 12px !important;
     border-radius: 20px !important;
@@ -238,13 +278,13 @@ div[data-baseweb="tag"] *, span[data-baseweb="tag"] * {
     color: #ffffff !important;
     text-transform: uppercase !important;
     letter-spacing: 0.5px !important;
-}
-.advisor-text-desc {
+}}
+.advisor-text-desc {{
     font-size: 13.5px !important;
-    color: #1e293b !important;
+    color: {_TEXT_PRIMARY} !important;
     line-height: 1.5 !important;
     margin: 0 !important;
-}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -279,280 +319,40 @@ def price_color(prix_m2, seuil_bas, seuil_haut):
         return PRICE_COLORS[2]
 
 
-def _make_building_polygon(lon, lat, type_local="Appartement", seed=None):
-    """
-    Génère un polygone rectangulaire réaliste simulant l'empreinte au sol
-    d'un bâtiment à partir d'un point (lon, lat).
-    - Maison        : ~10×12 m  (emprise individuelle)
-    - Appartement   : ~18×30 m  (emprise de l'immeuble)
-    Orientation pseudo-aléatoire basée sur la position pour reproduire
-    le tissu urbain.
-    """
-    if seed is not None:
-        rng = random.Random(seed)
-    else:
-        rng = random.Random(int(abs(lon * 1e6) + abs(lat * 1e6)))
-
-    if type_local == "Maison":
-        w_m = rng.uniform(8, 14)   # largeur en mètres
-        h_m = rng.uniform(10, 16)  # profondeur en mètres
-    else:  # Appartement / immeuble
-        w_m = rng.uniform(14, 25)
-        h_m = rng.uniform(20, 40)
-
-    # Conversion mètres -> degrés (approximation à la latitude de Nantes ~47.2°)
-    m_per_deg_lat = 111_320.0
-    m_per_deg_lon = 111_320.0 * math.cos(math.radians(lat))
-    dw = (w_m / 2) / m_per_deg_lon
-    dh = (h_m / 2) / m_per_deg_lat
-
-    # Rotation aléatoire du rectangle (0 à 180°)
-    angle = rng.uniform(0, math.pi)
-    cos_a, sin_a = math.cos(angle), math.sin(angle)
-
-    corners = [(-dw, -dh), (dw, -dh), (dw, dh), (-dw, dh)]
-    polygon = []
-    for cx, cy in corners:
-        rx = cx * cos_a - cy * sin_a + lon
-        ry = cx * sin_a + cy * cos_a + lat
-        polygon.append([rx, ry])
-    polygon.append(polygon[0])  # fermer le ring
-    return polygon
-
-
-# Convertisseur Lambert93 -> WGS84
-_transformer = Transformer.from_crs("EPSG:2154", "EPSG:4326", always_xy=True)
-
 # ---------------------------------------------------------------------------
-# 2. CHARGEMENT DES DONNÉES
+# 2. CHARGEMENT DES DONNÉES (Parquet pré-traités – ultra-rapide)
 # ---------------------------------------------------------------------------
 
-@st.cache_data(show_spinner="Chargement des données DPE (Nantes)…")
+@st.cache_data(show_spinner="Chargement des données DPE…")
 def load_dpe():
-    df = pd.read_csv(
-        "data/dpe/dpe-logements-existants-44.csv",
-        usecols=[
-            "etiquette_dpe", "etiquette_ges",
-            "surface_habitable_logement",
-            "adresse_ban",
-            "coordonnee_cartographique_x_ban",
-            "coordonnee_cartographique_y_ban",
-            "nom_commune_ban", "code_postal_ban",
-            "type_batiment", "periode_construction",
-            "type_energie_principale_chauffage",
-            "conso_5_usages_ep",
-        ],
-        low_memory=False,
-    )
-    df = df[df["nom_commune_ban"].str.upper() == "NANTES"].copy()
-    df = df.dropna(subset=[
-        "coordonnee_cartographique_x_ban",
-        "coordonnee_cartographique_y_ban",
-        "etiquette_dpe",
-    ])
-    lons, lats = _transformer.transform(
-        df["coordonnee_cartographique_x_ban"].values,
-        df["coordonnee_cartographique_y_ban"].values,
-    )
-    df["lat"] = lats
-    df["lon"] = lons
-    df = df[df["lat"].between(47.15, 47.32) & df["lon"].between(-1.65, -1.45)]
+    """Charge le Parquet DPE pré-traité (déjà filtré Nantes, coordonnées WGS84)."""
+    df = pd.read_parquet("data/parquet/dpe_nantes.parquet")
+    # Reconstituer les colonnes dérivées (couleurs RGBA, polygones)
     df["color_dpe"] = df["etiquette_dpe"].map(DPE_COLORS)
-    # Score numérique pour les zones DPE (Hexagones) : A=7, G=1
-    df["dpe_score"] = df["etiquette_dpe"].map({"A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2, "G": 1})
-    df = df[df["color_dpe"].notna()]
-    df["surface_habitable_logement"] = pd.to_numeric(
-        df["surface_habitable_logement"], errors="coerce"
-    )
-    df["conso_5_usages_ep"] = pd.to_numeric(df["conso_5_usages_ep"], errors="coerce")
-    df["surface_fmt"] = df["surface_habitable_logement"].apply(
-        lambda x: f"{x:.0f} m2" if pd.notna(x) else "N/A"
-    )
-    df["conso_fmt"] = df["conso_5_usages_ep"].apply(
-        lambda x: f"{x:.0f} kWh/m2/an" if pd.notna(x) else "N/A"
-    )
-    df["adresse_fmt"] = df["adresse_ban"].fillna("Adresse inconnue")
-
-    # Générer les empreintes de bâtiments (polygones)
-    df["building_polygon"] = [
-        _make_building_polygon(
-            row["lon"], row["lat"],
-            type_local=row.get("type_batiment", "Appartement"),
-            seed=i + 500_000,
-        )
-        for i, row in df.iterrows()
-    ]
-    return df.reset_index(drop=True)
+    df["building_polygon"] = df["building_polygon_json"].apply(json.loads)
+    return df
 
 
-@st.cache_data(show_spinner="Chargement du référentiel d'adresses BAN (Nantes)…")
-def load_ban_nantes():
-    """Charge les adresses BAN filtrées sur Nantes (code_insee 44109)."""
-    df = pd.read_csv(
-        "data/ban/adresses-44.csv",
-        sep=";",
-        usecols=["id_fantoir", "numero", "lon", "lat"],
-        low_memory=False,
-        dtype={"numero": str, "id_fantoir": str},
-    )
-    df = df[df["id_fantoir"].str.startswith("44109", na=False)].copy()
-    df["code_voie"] = df["id_fantoir"].str.split("_").str[-1]
-    df["no_voie"] = df["numero"].str.strip()
-    df = df[["code_voie", "no_voie", "lat", "lon"]].drop_duplicates(
-        subset=["code_voie", "no_voie"]
-    )
-    df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
-    df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
-    return df.dropna(subset=["lat", "lon"]).reset_index(drop=True)
-
-
-@st.cache_data(show_spinner="Chargement et géocodage des transactions DVF 2025…")
+@st.cache_data(show_spinner="Chargement des transactions DVF…")
 def load_dvf_geocoded():
-    """
-    Charge les ventes DVF Nantes (Maison/Appartement) et les géocode
-    via la BAN (jointure sur code FANTOIR + numéro de voie).
-    """
-    rows = []
-    with open(
-        "data/dvf/dvf-2025-dept44.csv",
-        "r", encoding="utf-8", errors="replace",
-    ) as f:
-        f.readline()
-        for line in f:
-            parts = line.rstrip("\n").split(";")
-            if len(parts) < 40:
-                continue
-            
-            # Code commune (index 19) doit être 109 pour Nantes
-            if parts[19].strip() != "109":
-                continue
-                
-            # Nature mutation (index 9) doit être Vente
-            if parts[9].strip() != "Vente":
-                continue
-                
-            # Type local (index 36)
-            type_local = parts[36].strip()
-            if type_local not in ("Maison", "Appartement"):
-                continue
-
-            val_raw = parts[10].strip()
-            surf_raw = parts[38].strip()
-            pieces_raw = parts[39].strip()
-            code_voie = parts[14].strip()
-            date_mut = parts[8].strip()
-
-            # Numéro de voie : index 11, puis 12 si vide/nul
-            no_voie = parts[11].strip()
-            if no_voie in ("00", "", "0") and len(parts) > 12:
-                no_voie = parts[12].strip()
-
-            try:
-                # Gérer le séparateur décimal français ","
-                valeur = float(val_raw.replace(",", "."))
-            except ValueError:
-                valeur = np.nan
-            try:
-                # Gérer le séparateur décimal français ","
-                surface = float(surf_raw.replace(",", "."))
-            except ValueError:
-                surface = np.nan
-            try:
-                pieces = int(float(pieces_raw.replace(",", ".")))
-            except (ValueError, TypeError):
-                pieces = np.nan
-
-            rows.append({
-                "valeur_fonciere": valeur,
-                "type_local": type_local,
-                "surface_m2": surface,
-                "nb_pieces": pieces,
-                "code_voie": code_voie,
-                "no_voie": no_voie,
-                "date_mutation": date_mut,
-            })
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-        df = pd.DataFrame(columns=[
-            "valeur_fonciere", "type_local", "surface_m2", "nb_pieces",
-            "code_voie", "no_voie", "date_mutation"
-        ])
-    df["valeur_fonciere"] = pd.to_numeric(df["valeur_fonciere"], errors="coerce")
-    df["surface_m2"] = pd.to_numeric(df["surface_m2"], errors="coerce")
-    df = df[
-        df["valeur_fonciere"].between(20_000, 5_000_000)
-        & df["surface_m2"].between(10, 400)
-    ].copy()
-    df["no_voie"] = df["no_voie"].astype(str).str.strip()
-
-    # Géocodage via BAN
-    ban = load_ban_nantes()
-    street_centroids = (
-        ban.groupby("code_voie")[["lat", "lon"]].median().reset_index()
-    )
-    street_centroids.columns = ["code_voie", "lat_s", "lon_s"]
-
-    merged = df.merge(ban, on=["code_voie", "no_voie"], how="left")
-    merged = merged.merge(street_centroids, on="code_voie", how="left")
-    merged["lat"] = merged["lat"].fillna(merged["lat_s"])
-    merged["lon"] = merged["lon"].fillna(merged["lon_s"])
-    merged = merged.dropna(subset=["lat", "lon"])
-
-    # Filtrage bounding box
-    merged = merged[
-        merged["lat"].between(47.15, 47.32)
-        & merged["lon"].between(-1.65, -1.45)
-    ]
-
-    # Pré-calculs
-    merged["prix_m2"] = (merged["valeur_fonciere"] / merged["surface_m2"]).round(0)
-    merged["valeur_fmt"] = merged["valeur_fonciere"].apply(
-        lambda x: f"{x:,.0f} EUR".replace(",", " ") if pd.notna(x) else "N/A"
-    )
-    merged["prix_m2_fmt"] = merged["prix_m2"].apply(
-        lambda x: f"{x:,.0f} EUR/m2".replace(",", " ") if pd.notna(x) else "N/A"
-    )
-    # Seuils dynamiques : terciles (33% / 66%) pour répartir en 3 groupes égaux
-    prix_m2_valid = merged["prix_m2"].dropna()
-    seuil_bas = prix_m2_valid.quantile(0.33)
-    seuil_haut = prix_m2_valid.quantile(0.66)
-    merged["color_prix"] = merged["prix_m2"].apply(
-        lambda x: price_color(x, seuil_bas, seuil_haut)
-    )
-    # Stocker les seuils pour les légendes
-    merged.attrs["seuil_bas"] = seuil_bas
-    merged.attrs["seuil_haut"] = seuil_haut
-
-    # Couleur par type de bien
-    merged["color_type"] = merged["type_local"].map({
-        "Maison": [230, 126, 34, 200],
-        "Appartement": [52, 152, 219, 200],
-    })
-
-    # Générer les empreintes de bâtiments (polygones)
-    merged["building_polygon"] = [
-        _make_building_polygon(
-            row["lon"], row["lat"],
-            type_local=row.get("type_local", "Appartement"),
-            seed=i,
-        )
-        for i, row in merged.iterrows()
-    ]
-    return merged.reset_index(drop=True)
+    """Charge le Parquet DVF pré-traité (déjà géocodé via BAN)."""
+    df = pd.read_parquet("data/parquet/dvf_nantes.parquet")
+    # Reconstituer les colonnes de listes Python depuis le JSON
+    df["color_prix"] = df["color_prix_json"].apply(json.loads)
+    df["color_type"] = df["color_type_json"].apply(json.loads)
+    df["building_polygon"] = df["building_polygon_json"].apply(json.loads)
+    # Charger les seuils de prix
+    with open("data/parquet/dvf_seuils.json", "r") as f:
+        seuils = json.load(f)
+    df.attrs["seuil_bas"] = seuils["seuil_bas"]
+    df.attrs["seuil_haut"] = seuils["seuil_haut"]
+    return df
 
 
 @st.cache_data(show_spinner="Chargement des stations de transport…")
 def load_transport():
-    df = pd.read_csv(
-        "data/transport/stations-44.csv",
-        sep=";", encoding="utf-8",
-    )
-    df = df.dropna(subset=["lat", "lon"])
-    df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
-    df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
-    df = df[df["lat"].between(47.15, 47.32) & df["lon"].between(-1.65, -1.45)]
-    return df.reset_index(drop=True)
+    """Charge le Parquet transport pré-traité."""
+    return pd.read_parquet("data/parquet/transport_nantes.parquet")
 
 
 # Chargement
@@ -607,11 +407,22 @@ max_points_choice = st.sidebar.select_slider(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("Style de carte")
+st.sidebar.subheader("Apparence")
+
+# Toggle thème sombre / clair
+if st.sidebar.button(
+    "Mode Sombre" if not is_dark else "Mode Clair",
+    key="theme_toggle",
+    use_container_width=True,
+):
+    st.session_state.dark_mode = not st.session_state.dark_mode
+    st.rerun()
+
+st.sidebar.markdown("")
 map_style_name = st.sidebar.selectbox(
     "Fond de carte :",
     options=["Sombre", "Clair", "Coloré"],
-    index=2,  # Par défaut "Coloré"
+    index=0 if is_dark else 2,
 )
 MAP_STYLES = {
     "Sombre": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
@@ -621,11 +432,26 @@ MAP_STYLES = {
 map_style = MAP_STYLES[map_style_name]
 
 choix_transport = st.sidebar.selectbox(
-    "Afficher les stations (tram/train) :",
+    "Afficher le réseau ferré (tram/train) :",
     options=["Non", "Oui"],
     index=0
 )
 show_transport = (choix_transport == "Oui")
+
+chart_theme_name = st.sidebar.selectbox(
+    "Couleur des graphiques :",
+    options=["Bleu & Vert", "Doré & Bronze", "Rouge & Corail", "Violet & Rose"],
+    index=0
+)
+CHART_THEMES = {
+    "Bleu & Vert": {"Appartement": "#3498db", "Maison": "#2ecc71"},
+    "Doré & Bronze": {"Appartement": "#d4af37", "Maison": "#a05a2c"},
+    "Rouge & Corail": {"Appartement": "#e74c3c", "Maison": "#e67e22"},
+    "Violet & Rose": {"Appartement": "#9b59b6", "Maison": "#e84393"}
+}
+chart_theme = CHART_THEMES[chart_theme_name]
+color_appart = chart_theme["Appartement"]
+color_maison = chart_theme["Maison"]
 
 # ---------------------------------------------------------------------------
 # 4. FILTRAGE EN DIRECT
@@ -727,7 +553,7 @@ if selected_row is not None:
     advisor_html = (
         f"<div class='advisor-box' style='border-left: 5px solid {border_color} !important;'>"
         f"<div class='advisor-header'>"
-        f"<span class='advisor-project-title'>💡 Avis d'équité de prix (Est-ce un bon prix ?)</span>"
+        f"<span class='advisor-project-title'>Avis d'équité de prix (Est-ce un bon prix ?)</span>"
         f"<span class='advisor-badge-pill' style='background-color: {badge_color} !important;'>{verdict}</span>"
         f"</div>"
         f"<p class='advisor-text-desc'>{desc_text}</p>"
@@ -746,7 +572,7 @@ else:
     advisor_html = (
         f"<div class='advisor-box' style='border-left: 5px solid #d4af37 !important;'>"
         f"<div class='advisor-header'>"
-        f"<span class='advisor-project-title'>💡 Observatoire Décisionnel Nantes (Business Intelligence)</span>"
+        f"<span class='advisor-project-title'>Observatoire Décisionnel Nantes (Business Intelligence)</span>"
         f"<span class='advisor-badge-pill' style='background-color: #d4af37 !important;'>Projet SAE-601</span>"
         f"</div>"
         f"<p class='advisor-text-desc'>{welcome_text}</p>"
@@ -754,167 +580,534 @@ else:
     )
     st.markdown(advisor_html, unsafe_allow_html=True)
 
-# En-tête style SeLoger
-st.markdown(
-    f"<div class='seloger-header'>"
-    f"<span class='seloger-count'>"
-    f"{nb_dvf:,} transactions immobilières – Nantes, disponibles sur la carte"
-    f"</span></div>".replace(",", " "),
-    unsafe_allow_html=True,
+# ---------------------------------------------------------------------------
+# 5.5 BARRE DE RECHERCHE PAR ADRESSE & ANALYSE DÉTAILLÉE
+# ---------------------------------------------------------------------------
+# Initialiser le compteur de clé si nécessaire
+if "search_key_counter" not in st.session_state:
+    st.session_state.search_key_counter = 0
+
+# Rassembler toutes les adresses uniques existantes
+addresses_dvf = set(df_dvf["adresse_fmt"].dropna().unique())
+addresses_dpe = set(df_dpe["adresse_fmt"].dropna().unique())
+all_addresses_list = sorted(list(addresses_dvf.union(addresses_dpe)))
+
+st.markdown("""
+<div style='margin-top: 10px; margin-bottom: 5px;'>
+    <h3 style='margin: 0; font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; border-left: 4px solid #d4af37; padding-left: 8px;'>Recherche Immobilière par Adresse</h3>
+</div>
+""", unsafe_allow_html=True)
+
+selected_addr = st.selectbox(
+    "Saisissez ou sélectionnez une adresse à Nantes pour obtenir une analyse détaillée :",
+    options=[""] + all_addresses_list,
+    index=0,
+    placeholder="Ex: 10 RUE DE VERDUN",
+    key=f"search_addr_input_{st.session_state.search_key_counter}",
+    label_visibility="collapsed"
 )
 
-# ── Layout principal : Liste à gauche, Carte à droite ──
-col_list, col_map = st.columns([2, 3], gap="medium")
-
-# === COLONNE GAUCHE : Liste des biens ===
-with col_list:
-    if selected_row is not None:
-        # Bouton élégant de retour à la liste complète
-        if st.button("⬅ Voir tous les biens", key="btn_reset_selection"):
+if selected_addr != "":
+    # --- BOUTON DE RETOUR ---
+    col_back, _ = st.columns([1, 4])
+    with col_back:
+        if st.button("<- Revenir à la vue globale", key="btn_close_search", use_container_width=True):
+            st.session_state.search_key_counter += 1
             st.query_params.clear()
             st.rerun()
-            
-        st.markdown("#### 📍 Bien sélectionné")
-        
-        # Générer la carte HTML du bien sélectionné
-        type_local = selected_row.get("type_local", "")
-        badge_cls = "badge-maison" if type_local == "Maison" else "badge-appart"
-        
-        valeur = selected_row.get("valeur_fonciere", 0)
-        prix_m2_val = selected_row.get("prix_m2", 0)
-        surface = selected_row.get("surface_m2", 0)
-        pieces = selected_row.get("nb_pieces", "")
-        date_mut = selected_row.get("date_mutation", "")
-        
-        val_str = f"{valeur:,.0f} €".replace(",", " ") if pd.notna(valeur) else "N/A"
-        pm2_str = f"{prix_m2_val:,.0f} €/m²".replace(",", " ") if pd.notna(prix_m2_val) else ""
-        surf_str = f"{surface:.0f} m²" if pd.notna(surface) else ""
-        pcs_str = f"{int(pieces)} pièce{'s' if pieces > 1 else ''}" if pd.notna(pieces) and pieces > 0 else ""
-        
-        details_parts = [s for s in [surf_str, pcs_str] if s]
-        details_str = " · ".join(details_parts)
-        
-        card_style = "border: 2px solid #d4af37; box-shadow: 0 4px 16px rgba(212, 175, 55, 0.45); background: #fafafa;"
-        selected_card_html = (
-            f"<div class='prop-card' style='{card_style}'>"
-            f"<p class='prop-price'>{val_str}</p>"
-            f"<p class='prop-price-m2'>{pm2_str}</p>"
-            f"<p class='prop-type'><span class='prop-badge {badge_cls}'>{type_local}</span></p>"
-            f"<p class='prop-details'>{details_str}</p>"
-            f"<p class='prop-date'>Vente du {date_mut}</p>"
-            f"</div>"
-        )
-        st.markdown(selected_card_html, unsafe_allow_html=True)
-        
-        # Section des 5 biens similaires recommandés
-        st.markdown("#### ✨ 5 Biens les plus similaires (Prix & Lieu)")
-        
-        # Filtrer le dataset pour exclure le bien sélectionné et calculer les scores
-        df_others = df_dvf_f[df_dvf_f.index != selected_idx].copy()
-        if not df_others.empty:
-            # Distance géographique approximative en kilomètres
-            df_others["dist_km"] = np.sqrt(
-                ((df_others["lat"] - selected_row["lat"]) * 111.32) ** 2 +
-                ((df_others["lon"] - selected_row["lon"]) * 80.0) ** 2
-            )
-            # Différence relative de prix au m²
-            df_others["price_diff_pct"] = (df_others["prix_m2"] - selected_row["prix_m2"]).abs() / max(selected_row["prix_m2"], 1)
-            # Score de similarité combiné (50% distance, 50% prix)
-            df_others["similarity_score"] = (df_others["dist_km"] / 2.0) + (df_others["price_diff_pct"] * 1.5)
-            # Sélectionner les 5 biens les plus similaires
-            df_similar = df_others.sort_values("similarity_score").head(5)
-        else:
-            df_similar = pd.DataFrame()
-            
-        # Générer les cartes HTML des biens similaires
-        cards_html = "<div class='property-list'>"
-        for idx, row in df_similar.iterrows():
-            type_local = row.get("type_local", "")
-            badge_cls = "badge-maison" if type_local == "Maison" else "badge-appart"
-            
-            valeur = row.get("valeur_fonciere", 0)
-            prix_m2_val = row.get("prix_m2", 0)
-            surface = row.get("surface_m2", 0)
-            pieces = row.get("nb_pieces", "")
-            date_mut = row.get("date_mutation", "")
-            
-            val_str = f"{valeur:,.0f} €".replace(",", " ") if pd.notna(valeur) else "N/A"
-            pm2_str = f"{prix_m2_val:,.0f} €/m²".replace(",", " ") if pd.notna(prix_m2_val) else ""
-            surf_str = f"{surface:.0f} m²" if pd.notna(surface) else ""
-            pcs_str = f"{int(pieces)} pièce{'s' if pieces > 1 else ''}" if pd.notna(pieces) and pieces > 0 else ""
-            
-            details_parts = [s for s in [surf_str, pcs_str] if s]
-            details_str = " · ".join(details_parts)
-            
-            card_html = (
-                f"<a href='?selected_id={idx}' target='_self' style='text-decoration: none; color: inherit;'>"
-                f"<div class='prop-card' style=''>"
-                f"<p class='prop-price'>{val_str}</p>"
-                f"<p class='prop-price-m2'>{pm2_str}</p>"
-                f"<p class='prop-type'><span class='prop-badge {badge_cls}'>{type_local}</span></p>"
-                f"<p class='prop-details'>{details_str}</p>"
-                f"<p class='prop-date'>Vente du {date_mut}</p>"
-                f"</div>"
-                f"</a>"
-            )
-            cards_html += card_html
-        cards_html += "</div>"
-        st.markdown(cards_html, unsafe_allow_html=True)
-        
+
+    # --- COLLECTE ET INTERPOLATION DES DONNÉES SPATIALES ---
+    rows_dpe = df_dpe[df_dpe["adresse_fmt"] == selected_addr]
+    rows_dvf = df_dvf[df_dvf["adresse_fmt"] == selected_addr]
+
+    # Déterminer la position géographique
+    if not rows_dvf.empty:
+        lat = rows_dvf.iloc[0]["lat"]
+        lon = rows_dvf.iloc[0]["lon"]
+        exact_dvf = True
+    elif not rows_dpe.empty:
+        lat = rows_dpe.iloc[0]["lat"]
+        lon = rows_dpe.iloc[0]["lon"]
+        exact_dvf = False
     else:
-        # Tri de la liste complète des biens
-        tri_option = st.selectbox(
-            "Tri par :",
-            ["Prix croissant", "Prix décroissant", "Prix/m² croissant",
-             "Prix/m² décroissant", "Surface croissante", "Surface décroissante"],
-            index=1,
-            label_visibility="collapsed",
-        )
-        tri_map = {
-            "Prix croissant": ("valeur_fonciere", True),
-            "Prix décroissant": ("valeur_fonciere", False),
-            "Prix/m² croissant": ("prix_m2", True),
-            "Prix/m² décroissant": ("prix_m2", False),
-            "Surface croissante": ("surface_m2", True),
-            "Surface décroissante": ("surface_m2", False),
+        lat, lon = 47.2184, -1.5536
+        exact_dvf = False
+
+    # 1. Données DPE (exactes ou par voisin le plus proche)
+    is_interpolated_dpe = False
+    dpe_dist = 0.0
+    if not rows_dpe.empty:
+        dpe_record = rows_dpe.iloc[0]
+    else:
+        is_interpolated_dpe = True
+        distances_dpe = np.sqrt(((df_dpe["lat"] - lat) * 111.32)**2 + ((df_dpe["lon"] - lon) * 80.0)**2) * 1000.0
+        closest_dpe_idx = distances_dpe.idxmin()
+        dpe_dist = distances_dpe.loc[closest_dpe_idx]
+        dpe_record = df_dpe.loc[closest_dpe_idx]
+
+    # 2. Données DVF (médiane locale du quartier)
+    distances_dvf = np.sqrt(((df_dvf["lat"] - lat) * 111.32)**2 + ((df_dvf["lon"] - lon) * 80.0)**2) * 1000.0
+    df_dvf_with_dist = df_dvf.copy()
+    df_dvf_with_dist["dist_m"] = distances_dvf
+    df_neighbors = df_dvf_with_dist[df_dvf_with_dist["adresse_fmt"] != selected_addr]
+    
+    if not df_neighbors.empty:
+        closest_15 = df_neighbors.sort_values("dist_m").head(15)
+        median_local_prix_m2 = closest_15["prix_m2"].median()
+    else:
+        closest_15 = pd.DataFrame()
+        median_local_prix_m2 = 0.0
+
+    # Type de bâtiment
+    b_type = "Appartement"
+    if not rows_dvf.empty:
+        b_type = rows_dvf.iloc[0]["type_local"]
+    elif pd.notna(dpe_record.get("type_batiment")):
+        if "maison" in str(dpe_record["type_batiment"]).lower():
+            b_type = "Maison"
+
+    # Médiane globale Nantes pour ce type
+    df_nantes_type = df_dvf[df_dvf["type_local"] == b_type]
+    median_nantes_prix_m2 = df_nantes_type["prix_m2"].median() if not df_nantes_type.empty else 2600.0
+
+    # Prix de vente du bien ou estimation locale
+    if not rows_dvf.empty:
+        building_prix_m2 = rows_dvf.iloc[0]["prix_m2"]
+        price_label = "Vente historique"
+        has_actual_price = True
+    else:
+        building_prix_m2 = median_local_prix_m2
+        price_label = "Estimation locale"
+        has_actual_price = False
+
+    # --- RENDU DE LA FICHE D'ANALYSE DÉTAILLÉE ---
+    st.markdown(f"""
+    <div style='background: {_BG_CARD}; padding: 20px 24px; border-radius: 12px; border: 1px solid {_BORDER_CARD}; margin-top: 16px; margin-bottom: 24px; border-left: 6px solid #d4af37; box-shadow: 0 4px 15px {_SHADOW_CARD};'>
+        <h2 style='margin: 0 0 6px 0; color: {_TEXT_PRIMARY}; font-size: 23px;'>Fiche d'Analyse Immobilière Détaillée</h2>
+        <p style='margin: 0; color: #d4af37; font-size: 18px; font-weight: 700;'>{selected_addr}</p>
+        <p style='margin: 4px 0 0 0; color: {_TEXT_SECONDARY}; font-size: 12.5px;'>Coordonnées : {lat:.5f}, {lon:.5f} · Nantes Métropole · Type dominant : {b_type}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2 = st.columns([2, 3], gap="large")
+
+    # === COLONNE GAUCHE : DPE & Caractéristiques ===
+    with col1:
+        st.markdown("#### Performance Énergétique")
+        
+        # Dessin de la frise DPE
+        letters = ["A", "B", "C", "D", "E", "F", "G"]
+        colors = {
+            "A": "#009E5F", "B": "#34B34A", "C": "#BACF11",
+            "D": "#FEE900", "E": "#FBBD08", "F": "#F47D22", "G": "#EB1C24"
         }
-        sort_col, sort_asc = tri_map[tri_option]
-        df_sorted = df_dvf_f.sort_values(sort_col, ascending=sort_asc).head(80)
+        
+        selected_letter = str(dpe_record.get("etiquette_dpe", "D")).upper()
+        
+        frise_html = "<div style='display: flex; flex-direction: column; gap: 5px; font-family: \"Inter\", sans-serif; margin-bottom: 16px;'>"
+        for letter in letters:
+            color = colors[letter]
+            is_selected = (letter == selected_letter)
+            border_style = "border: 2px solid #ffffff; box-shadow: 0 0 8px rgba(0,0,0,0.25); transform: scale(1.02); opacity: 1.0;" if is_selected else "opacity: 0.5;"
+            badge_text = "CE BIEN" if is_selected else ""
+            if is_selected and is_interpolated_dpe:
+                badge_text = "ESTIMÉ (VOISIN)"
+                
+            active_indicator = f"<span style='background: #ffffff; color: #111827; font-weight: 900; padding: 2px 8px; border-radius: 4px; font-size: 10px; margin-left: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.15);'>{badge_text}</span>" if is_selected else ""
+            
+            frise_html += f"<div style='display: flex; align-items: center; background-color: {color}; color: #ffffff; padding: 6px 12px; border-radius: 6px; font-weight: 800; font-size: 13px; {border_style}'><span>CLASSE {letter}</span>{active_indicator}</div>"
+        frise_html += "</div>"
+        st.markdown(frise_html, unsafe_allow_html=True)
+        
+        if is_interpolated_dpe:
+            st.caption(f"ℹ️ Aucun diagnostic DPE exact à cette adresse. Caractéristiques basées sur le bâtiment voisin le plus proche à {dpe_dist:.0f} m.")
+            
+        # Caractéristiques techniques
+        st.markdown("##### Détails du Diagnostic")
+        conso = dpe_record.get("conso_fmt", "N/A")
+        ges = dpe_record.get("etiquette_ges", "N/A")
+        chauffage = dpe_record.get("type_energie_principale_chauffage", "N/A")
+        construction = dpe_record.get("periode_construction", "N/A")
+        
+        st.markdown(f"<table style='width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;'>"
+                    f"<tr style='border-bottom: 1px solid {_BORDER_CARD};'><td style='padding: 6px 0; color: {_TEXT_SECONDARY};'>Consommation 5 usages</td><td style='padding: 6px 0; text-align: right; font-weight: bold;'>{conso}</td></tr>"
+                    f"<tr style='border-bottom: 1px solid {_BORDER_CARD};'><td style='padding: 6px 0; color: {_TEXT_SECONDARY};'>Émissions de GES</td><td style='padding: 6px 0; text-align: right; font-weight: bold; color: #ff6b6b;'>Classe {ges}</td></tr>"
+                    f"<tr style='border-bottom: 1px solid {_BORDER_CARD};'><td style='padding: 6px 0; color: {_TEXT_SECONDARY};'>Énergie chauffage</td><td style='padding: 6px 0; text-align: right; font-weight: bold;'>{chauffage}</td></tr>"
+                    f"<tr style='border-bottom: 1px solid {_BORDER_CARD};'><td style='padding: 6px 0; color: {_TEXT_SECONDARY};'>Époque de construction</td><td style='padding: 6px 0; text-align: right; font-weight: bold;'>{construction}</td></tr>"
+                    f"</table>", unsafe_allow_html=True)
 
-        # Générer les cartes HTML de tous les biens sans retours à la ligne ni indentations
-        cards_html = "<div class='property-list'>"
-        for idx, row in df_sorted.iterrows():
-            type_local = row.get("type_local", "")
+    # === COLONNE DROITE : Valorisation & Comparatif ===
+    with col2:
+        st.markdown("#### Analyse Comparative de Marché (Prix/m²)")
+        
+        # Graphique Plotly de comparaison
+        fig_comp = go.Figure()
+        fig_comp.add_trace(go.Bar(
+            y=["Médiane Ville", "Médiane Quartier", price_label],
+            x=[median_nantes_prix_m2, median_local_prix_m2, building_prix_m2],
+            orientation='h',
+            marker=dict(
+                color=['#cbd5e1', '#2ecc71', '#d4af37'],
+                line=dict(color='#ffffff', width=1)
+            ),
+            text=[f"{median_nantes_prix_m2:,.0f} €/m²", f"{median_local_prix_m2:,.0f} €/m²", f"{building_prix_m2:,.0f} €/m²"],
+            textposition='auto',
+            textfont=dict(color='#111827', weight='bold', size=11),
+            showlegend=False
+        ))
+        fig_comp.update_layout(
+            margin=dict(l=10, r=10, t=10, b=10),
+            height=160,
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            xaxis=dict(showgrid=False, visible=False),
+            yaxis=dict(tickfont=dict(color=_TEXT_PRIMARY, size=12, weight='bold'))
+        )
+        st.plotly_chart(fig_comp, use_container_width=True, config={'displayModeBar': False})
+        
+        # Affichage des transactions réelles ou de l'estimation
+        if has_actual_price:
+            st.markdown("##### Ventes enregistrées à cette adresse")
+            for _, row in rows_dvf.iterrows():
+                val_fonc = row.get("valeur_fonciere", 0)
+                surf = row.get("surface_m2", 0)
+                pcs = row.get("nb_pieces", 0)
+                date_m = row.get("date_mutation", "")
+                
+                st.markdown(f"<div style='background: {_BG_CARD}; padding: 12px 16px; border: 1px solid {_BORDER_CARD}; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 2px 6px {_SHADOW_CARD};'>"
+                            f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
+                            f"<span style='font-size: 16px; font-weight: bold; color: {_TEXT_PRIMARY};'>{val_fonc:,.0f} €</span>"
+                            f"<span style='font-size: 12.5px; font-weight: bold; color: #d4af37;'>{row['prix_m2']:,.0f} €/m²</span>"
+                            f"</div>"
+                            f"<div style='font-size: 12px; color: {_TEXT_SECONDARY}; margin-top: 4px;'>"
+                            f"{b_type} · {surf:.0f} m² · {int(pcs)} pièces · Vente du {date_m}"
+                            f"</div>"
+                            f"</div>".replace(",", " "), unsafe_allow_html=True)
+        else:
+            st.info(f"Aucune vente enregistrée à cette adresse depuis 2024. Estimation locale médiane : **{median_local_prix_m2:,.0f} €/m²**.")
+
+        # Tableau des 5 ventes les plus proches
+        if not closest_15.empty:
+            st.markdown("##### Les 5 ventes les plus proches (Micro-marché)")
+            df_closest_5 = closest_15.head(5)[["adresse_fmt", "type_local", "surface_m2", "nb_pieces", "valeur_fonciere", "prix_m2", "dist_m"]]
+            df_show = df_closest_5.rename(columns={
+                "adresse_fmt": "Adresse",
+                "type_local": "Type",
+                "surface_m2": "Surface",
+                "valeur_fonciere": "Prix de vente",
+                "prix_m2": "Prix/m²",
+                "dist_m": "Distance"
+            })
+            df_show["Surface"] = df_show["Surface"].apply(lambda x: f"{x:.0f} m²" if pd.notna(x) else "")
+            df_show["Prix de vente"] = df_show["Prix de vente"].apply(lambda x: f"{x:,.0f} €".replace(",", " ") if pd.notna(x) else "")
+            df_show["Prix/m²"] = df_show["Prix/m²"].apply(lambda x: f"{x:,.0f} €/m²".replace(",", " ") if pd.notna(x) else "")
+            df_show["Distance"] = df_show["Distance"].apply(lambda x: f"{x:.0f} m")
+            
+            st.dataframe(df_show, hide_index=True, use_container_width=True)
+
+    # === SECTION DU BAS : Transports & Mini-carte ===
+    st.markdown("---")
+    col_map_loc, col_trans_loc = st.columns([3, 2], gap="large")
+    
+    with col_map_loc:
+        st.markdown("#### Cartographie Locale & Environnement")
+        
+        # Halo de surbrillance doré
+        df_center = pd.DataFrame([{"lat": lat, "lon": lon}])
+        layer_search_halo = pdk.Layer(
+            "ScatterplotLayer",
+            data=df_center,
+            get_position="[lon, lat]",
+            get_radius=22,
+            radius_min_pixels=14,
+            radius_max_pixels=35,
+            get_fill_color=[212, 175, 55, 130],
+            get_line_color=[255, 255, 255, 255],
+            line_width_min_pixels=2,
+        )
+        layer_search_center = pdk.Layer(
+            "ScatterplotLayer",
+            data=df_center,
+            get_position="[lon, lat]",
+            get_radius=6,
+            radius_min_pixels=5,
+            radius_max_pixels=12,
+            get_fill_color=[255, 215, 0, 255],
+            get_line_color=[255, 255, 255, 255],
+            line_width_min_pixels=2,
+        )
+        
+        # Ventes proches
+        layer_sales_local = pdk.Layer(
+            "ScatterplotLayer",
+            data=closest_15 if not closest_15.empty else pd.DataFrame(),
+            get_position="[lon, lat]",
+            get_radius=15,
+            radius_min_pixels=5,
+            radius_max_pixels=14,
+            get_fill_color="color_prix",
+            get_line_color=[255, 255, 255, 180],
+            line_width_min_pixels=1,
+            pickable=True,
+        )
+        
+        # Transports locaux
+        distances_transport = np.sqrt(((df_transport["lat"] - lat) * 111.32)**2 + ((df_transport["lon"] - lon) * 80.0)**2) * 1000.0
+        df_trans_local = df_transport.copy()
+        df_trans_local["dist_m"] = distances_transport
+        df_trans_local = df_trans_local[df_trans_local["dist_m"] <= 1000.0].sort_values("dist_m")
+        df_trans_local = df_trans_local.drop_duplicates(subset=["name"])
+        
+        layer_trans_local = pdk.Layer(
+            "ScatterplotLayer",
+            data=df_trans_local if not df_trans_local.empty else pd.DataFrame(),
+            get_position="[lon, lat]",
+            get_radius=18,
+            radius_min_pixels=4,
+            radius_max_pixels=12,
+            get_fill_color=[52, 152, 219, 220],
+            get_line_color=[255, 255, 255, 160],
+            line_width_min_pixels=1,
+            pickable=True,
+        )
+        
+        view_state_local = pdk.ViewState(
+            latitude=lat,
+            longitude=lon,
+            zoom=16,
+            pitch=0,
+            bearing=0
+        )
+        
+        tooltip_local = {
+            "html": (
+                "<div style='font-family:Inter,sans-serif;padding:8px;"
+                "background:#fff;border-radius:6px;color:#111827;"
+                "box-shadow:0 2px 10px rgba(0,0,0,.15);font-size:12px;'>"
+                "<b>{adresse_fmt}</b><br>"
+                "{valeur_fmt}<br>"
+                "{prix_m2_fmt}<br>"
+                "{surface_m2} m² · {nb_pieces} pièces"
+                "</div>"
+            ),
+            "style": {"backgroundColor": "transparent", "border": "none", "padding": "0"},
+        }
+        
+        st.pydeck_chart(
+            pdk.Deck(
+                map_style=map_style,
+                initial_view_state=view_state_local,
+                layers=[layer_search_halo, layer_search_center, layer_sales_local, layer_trans_local],
+                tooltip=tooltip_local
+            ),
+            use_container_width=True
+        )
+
+    with col_trans_loc:
+        st.markdown("#### Réseau Ferré à Proximité (< 1km)")
+        
+        if not df_trans_local.empty:
+            trans_html = "<div style='display: flex; flex-direction: column; gap: 8px; margin-top: 10px;'>"
+            for _, station in df_trans_local.iterrows():
+                name = station["name"]
+                dist = station["dist_m"]
+                r_type = station["railway_type"]
+                badge_bg = "#3498db" if "tram" in str(r_type).lower() else "#9b59b6"
+                
+                trans_html += (
+                    f"<div style='background: {_BG_CARD}; border: 1px solid {_BORDER_CARD}; border-left: 5px solid {badge_bg}; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; box-shadow: 0 1px 4px {_SHADOW_CARD};'>"
+                    f"<div style='flex: 1;'>"
+                    f"<div style='font-weight: 800; font-size: 13px; color: {_TEXT_PRIMARY};'>{name}</div>"
+                    f"<div style='font-size: 11px; color: {_TEXT_SECONDARY};'>{r_type.upper()} · à {dist:.0f} mètres</div>"
+                    f"</div>"
+                    f"</div>"
+                )
+            trans_html += "</div>"
+            st.markdown(trans_html, unsafe_allow_html=True)
+        else:
+            st.info("Aucune station du réseau ferré (tram/train) à moins de 1 kilomètre de cette adresse.")
+
+    st.stop()
+
+# Initialiser l'état d'agrandissement de la carte si nécessaire
+if "map_expanded" not in st.session_state:
+    st.session_state.map_expanded = False
+
+# En-tête style SeLoger avec bouton d'agrandissement
+col_head_title, col_head_btn = st.columns([3, 1])
+with col_head_title:
+    st.markdown(
+        f"<div class='seloger-header' style='border-bottom: none; margin-bottom: 0;'>"
+        f"<span class='seloger-count'>"
+        f"{nb_dvf:,} transactions immobilières – Nantes, disponibles sur la carte"
+        f"</span></div>".replace(",", " "),
+        unsafe_allow_html=True,
+    )
+with col_head_btn:
+    btn_label = "Réduire la carte" if st.session_state.map_expanded else "Agrandir la carte"
+    if st.button(btn_label, key="btn_toggle_map_size", use_container_width=True):
+        st.session_state.map_expanded = not st.session_state.map_expanded
+        st.rerun()
+
+st.markdown("<hr style='margin-top: 0; margin-bottom: 16px; border-color: rgba(0,0,0,0.1);'>", unsafe_allow_html=True)
+
+# ── Layout principal adaptatif ──
+if st.session_state.map_expanded:
+    col_list = None
+    col_map = st.container()
+else:
+    col_list, col_map = st.columns([2, 3], gap="medium")
+
+# === COLONNE GAUCHE : Liste des biens ===
+if not st.session_state.map_expanded:
+    with col_list:
+        if selected_row is not None:
+            # Bouton élégant de retour à la liste complète
+            if st.button("<- Voir tous les biens", key="btn_reset_selection"):
+                st.query_params.clear()
+                st.rerun()
+                
+            st.markdown("#### Bien sélectionné")
+            
+            # Générer la carte HTML du bien sélectionné
+            type_local = selected_row.get("type_local", "")
             badge_cls = "badge-maison" if type_local == "Maison" else "badge-appart"
-
-            valeur = row.get("valeur_fonciere", 0)
-            prix_m2_val = row.get("prix_m2", 0)
-            surface = row.get("surface_m2", 0)
-            pieces = row.get("nb_pieces", "")
-            date_mut = row.get("date_mutation", "")
-
+            
+            valeur = selected_row.get("valeur_fonciere", 0)
+            prix_m2_val = selected_row.get("prix_m2", 0)
+            surface = selected_row.get("surface_m2", 0)
+            pieces = selected_row.get("nb_pieces", "")
+            date_mut = selected_row.get("date_mutation", "")
+            
             val_str = f"{valeur:,.0f} €".replace(",", " ") if pd.notna(valeur) else "N/A"
             pm2_str = f"{prix_m2_val:,.0f} €/m²".replace(",", " ") if pd.notna(prix_m2_val) else ""
             surf_str = f"{surface:.0f} m²" if pd.notna(surface) else ""
             pcs_str = f"{int(pieces)} pièce{'s' if pieces > 1 else ''}" if pd.notna(pieces) and pieces > 0 else ""
-
+            
             details_parts = [s for s in [surf_str, pcs_str] if s]
             details_str = " · ".join(details_parts)
-
-            card_html = (
-                f"<a href='?selected_id={idx}' target='_self' style='text-decoration: none; color: inherit;'>"
-                f"<div class='prop-card' style=''>"
+            
+            card_style = "border: 2px solid #d4af37; box-shadow: 0 4px 16px rgba(212, 175, 55, 0.45); background: #fafafa;"
+            selected_card_html = (
+                f"<div class='prop-card' style='{card_style}'>"
                 f"<p class='prop-price'>{val_str}</p>"
                 f"<p class='prop-price-m2'>{pm2_str}</p>"
                 f"<p class='prop-type'><span class='prop-badge {badge_cls}'>{type_local}</span></p>"
                 f"<p class='prop-details'>{details_str}</p>"
                 f"<p class='prop-date'>Vente du {date_mut}</p>"
                 f"</div>"
-                f"</a>"
             )
-            cards_html += card_html
-        cards_html += "</div>"
-        st.markdown(cards_html, unsafe_allow_html=True)
+            st.markdown(selected_card_html, unsafe_allow_html=True)
+            
+            # Section des 5 biens similaires recommandés
+            st.markdown("#### 5 Biens les plus similaires (Prix & Lieu)")
+            
+            # Filtrer le dataset pour exclure le bien sélectionné et calculer les scores
+            df_others = df_dvf_f[df_dvf_f.index != selected_idx].copy()
+            if not df_others.empty:
+                # Distance géographique approximative en kilomètres
+                df_others["dist_km"] = np.sqrt(
+                    ((df_others["lat"] - selected_row["lat"]) * 111.32) ** 2 +
+                    ((df_others["lon"] - selected_row["lon"]) * 80.0) ** 2
+                )
+                # Différence relative de prix au m²
+                df_others["price_diff_pct"] = (df_others["prix_m2"] - selected_row["prix_m2"]).abs() / max(selected_row["prix_m2"], 1)
+                # Score de similarité combiné (50% distance, 50% prix)
+                df_others["similarity_score"] = (df_others["dist_km"] / 2.0) + (df_others["price_diff_pct"] * 1.5)
+                # Sélectionner les 5 biens les plus similaires
+                df_similar = df_others.sort_values("similarity_score").head(5)
+            else:
+                df_similar = pd.DataFrame()
+                
+            # Générer les cartes HTML des biens similaires
+            cards_html = "<div class='property-list'>"
+            for idx, row in df_similar.iterrows():
+                type_local = row.get("type_local", "")
+                badge_cls = "badge-maison" if type_local == "Maison" else "badge-appart"
+                
+                valeur = row.get("valeur_fonciere", 0)
+                prix_m2_val = row.get("prix_m2", 0)
+                surface = row.get("surface_m2", 0)
+                pieces = row.get("nb_pieces", "")
+                date_mut = row.get("date_mutation", "")
+                
+                val_str = f"{valeur:,.0f} €".replace(",", " ") if pd.notna(valeur) else "N/A"
+                pm2_str = f"{prix_m2_val:,.0f} €/m²".replace(",", " ") if pd.notna(prix_m2_val) else ""
+                surf_str = f"{surface:.0f} m²" if pd.notna(surface) else ""
+                pcs_str = f"{int(pieces)} pièce{'s' if pieces > 1 else ''}" if pd.notna(pieces) and pieces > 0 else ""
+                
+                details_parts = [s for s in [surf_str, pcs_str] if s]
+                details_str = " · ".join(details_parts)
+                
+                card_html = (
+                    f"<a href='?selected_id={idx}' target='_self' style='text-decoration: none; color: inherit;'>"
+                    f"<div class='prop-card' style=''>"
+                    f"<p class='prop-price'>{val_str}</p>"
+                    f"<p class='prop-price-m2'>{pm2_str}</p>"
+                    f"<p class='prop-type'><span class='prop-badge {badge_cls}'>{type_local}</span></p>"
+                    f"<p class='prop-details'>{details_str}</p>"
+                    f"<p class='prop-date'>Vente du {date_mut}</p>"
+                    f"</div>"
+                    f"</a>"
+                )
+                cards_html += card_html
+            cards_html += "</div>"
+            st.markdown(cards_html, unsafe_allow_html=True)
+            
+        else:
+            # Tri de la liste complète des biens
+            tri_option = st.selectbox(
+                "Tri par :",
+                ["Prix croissant", "Prix décroissant", "Prix/m² croissant",
+                 "Prix/m² décroissant", "Surface croissante", "Surface décroissante"],
+                index=1,
+                label_visibility="collapsed",
+            )
+            tri_map = {
+                "Prix croissant": ("valeur_fonciere", True),
+                "Prix décroissant": ("valeur_fonciere", False),
+                "Prix/m² croissant": ("prix_m2", True),
+                "Prix/m² décroissant": ("prix_m2", False),
+                "Surface croissante": ("surface_m2", True),
+                "Surface décroissante": ("surface_m2", False),
+            }
+            sort_col, sort_asc = tri_map[tri_option]
+            df_sorted = df_dvf_f.sort_values(sort_col, ascending=sort_asc).head(80)
+
+            # Générer les cartes HTML de tous les biens sans retours à la ligne ni indentations
+            cards_html = "<div class='property-list'>"
+            for idx, row in df_sorted.iterrows():
+                type_local = row.get("type_local", "")
+                badge_cls = "badge-maison" if type_local == "Maison" else "badge-appart"
+
+                valeur = row.get("valeur_fonciere", 0)
+                prix_m2_val = row.get("prix_m2", 0)
+                surface = row.get("surface_m2", 0)
+                pieces = row.get("nb_pieces", "")
+                date_mut = row.get("date_mutation", "")
+
+                val_str = f"{valeur:,.0f} €".replace(",", " ") if pd.notna(valeur) else "N/A"
+                pm2_str = f"{prix_m2_val:,.0f} €/m²".replace(",", " ") if pd.notna(prix_m2_val) else ""
+                surf_str = f"{surface:.0f} m²" if pd.notna(surface) else ""
+                pcs_str = f"{int(pieces)} pièce{'s' if pieces > 1 else ''}" if pd.notna(pieces) and pieces > 0 else ""
+
+                details_parts = [s for s in [surf_str, pcs_str] if s]
+                details_str = " · ".join(details_parts)
+
+                card_html = (
+                    f"<a href='?selected_id={idx}' target='_self' style='text-decoration: none; color: inherit;'>"
+                    f"<div class='prop-card' style=''>"
+                    f"<p class='prop-price'>{val_str}</p>"
+                    f"<p class='prop-price-m2'>{pm2_str}</p>"
+                    f"<p class='prop-type'><span class='prop-badge {badge_cls}'>{type_local}</span></p>"
+                    f"<p class='prop-details'>{details_str}</p>"
+                    f"<p class='prop-date'>Vente du {date_mut}</p>"
+                    f"</div>"
+                    f"</a>"
+                )
+                cards_html += card_html
+            cards_html += "</div>"
+            st.markdown(cards_html, unsafe_allow_html=True)
 
 # === COLONNE DROITE : Carte avec marqueurs rouges ===
 with col_map:
@@ -1069,61 +1262,78 @@ c4.metric("Surface médiane", f"{df_dvf_f['surface_m2'].median():.0f} m²" if nb
 st.divider()
 
 # ---------------------------------------------------------------------------
-# 7. ANALYSE DPE (Onglets secondaires)
+# 7. ANALYSE DPE (uniquement si aucun bien n'est sélectionné)
 # ---------------------------------------------------------------------------
-st.subheader("Analyse Énergétique (DPE)")
+if selected_row is None:
+    st.subheader("Analyse Énergétique (DPE)")
 
-VIEW_STATE_2D = pdk.ViewState(
-    latitude=47.2184, longitude=-1.5536, zoom=12.5, pitch=0, bearing=0
-)
+    VIEW_STATE_2D = pdk.ViewState(
+        latitude=47.2184, longitude=-1.5536, zoom=12.5, pitch=0, bearing=0
+    )
 
-# Tooltip DPE
-tooltip_dpe = {
-    "html": (
-        "<div style='font-family:Inter,sans-serif;padding:12px;"
-        "background:rgba(15,20,30,0.95);border-radius:10px;"
-        "border:1px solid rgba(255,255,255,0.12);color:#fff;"
-        "box-shadow:0 4px 24px rgba(0,0,0,.5);max-width:280px;'>"
-        "<div style='font-size:10px;text-transform:uppercase;color:#7fa5c8;"
-        "margin-bottom:6px;font-weight:700;'>Diagnostic DPE</div>"
-        "<div style='font-size:14px;font-weight:800;color:#2ecc71;margin-bottom:6px;'>"
-        "{adresse_fmt}</div>"
-        "<hr style='border:0;height:1px;background:rgba(255,255,255,.1);margin:6px 0;'>"
-        "<table style='font-size:12px;width:100%;'>"
-        "<tr><td style='color:#a0aec0;'>Type :</td>"
-        "<td style='font-weight:700;text-align:right;'>{type_batiment}</td></tr>"
-        "<tr><td style='color:#a0aec0;'>Surface :</td>"
-        "<td style='font-weight:700;text-align:right;'>{surface_fmt}</td></tr>"
-        "<tr><td style='color:#a0aec0;'>Etiquette DPE :</td>"
-        "<td style='font-weight:800;text-align:right;color:#f1c40f;'>{etiquette_dpe}</td></tr>"
-        "<tr><td style='color:#a0aec0;'>Conso. 5 usages :</td>"
-        "<td style='font-weight:700;text-align:right;color:#e74c3c;'>{conso_fmt}</td></tr>"
-        "<tr><td style='color:#a0aec0;'>Periode construction :</td>"
-        "<td style='font-weight:600;text-align:right;font-size:11px;'>{periode_construction}</td></tr>"
-        "</table></div>"
-    ),
-    "style": {"backgroundColor": "transparent", "border": "none", "padding": "0"},
-}
+    # Tooltip DPE
+    tooltip_dpe = {
+        "html": (
+            "<div style='font-family:Inter,sans-serif;padding:12px;"
+            "background:rgba(15,20,30,0.95);border-radius:10px;"
+            "border:1px solid rgba(255,255,255,0.12);color:#fff;"
+            "box-shadow:0 4px 24px rgba(0,0,0,.5);max-width:280px;'>"
+            "<div style='font-size:10px;text-transform:uppercase;color:#7fa5c8;"
+            "margin-bottom:6px;font-weight:700;'>Diagnostic DPE</div>"
+            "<div style='font-size:14px;font-weight:800;color:#2ecc71;margin-bottom:6px;'>"
+            "{adresse_fmt}</div>"
+            "<hr style='border:0;height:1px;background:rgba(255,255,255,.1);margin:6px 0;'>"
+            "<table style='font-size:12px;width:100%;'>"
+            "<tr><td style='color:#a0aec0;'>Type :</td>"
+            "<td style='font-weight:700;text-align:right;'>{type_batiment}</td></tr>"
+            "<tr><td style='color:#a0aec0;'>Surface :</td>"
+            "<td style='font-weight:700;text-align:right;'>{surface_fmt}</td></tr>"
+            "<tr><td style='color:#a0aec0;'>Etiquette DPE :</td>"
+            "<td style='font-weight:800;text-align:right;color:#f1c40f;'>{etiquette_dpe}</td></tr>"
+            "<tr><td style='color:#a0aec0;'>Conso. 5 usages :</td>"
+            "<td style='font-weight:700;text-align:right;color:#e74c3c;'>{conso_fmt}</td></tr>"
+            "<tr><td style='color:#a0aec0;'>Periode construction :</td>"
+            "<td style='font-weight:600;text-align:right;font-size:11px;'>{periode_construction}</td></tr>"
+            "</table></div>"
+        ),
+        "style": {"backgroundColor": "transparent", "border": "none", "padding": "0"},
+    }
 
-if nb_dpe > 0:
-    tab_dpe_bat, tab_dpe_perf, tab_dpe_heat = st.tabs([
-        "DPE par bâtiment",
-        "Performance Énergétique",
-        "Densité Énergétique",
-    ])
-
-    with tab_dpe_bat:
+    if nb_dpe > 0:
         st.markdown("##### DPE par bâtiment – Couleur = Étiquette énergétique")
+        
+        # Initialiser le filtre de carte DPE si nécessaire
+        if "selected_dpe_map_filter" not in st.session_state:
+            st.session_state.selected_dpe_map_filter = None
+            
         leg_dpe = st.columns(7)
         dpe_labels = ["A", "B", "C", "D", "E", "F", "G"]
         dpe_css = ["#27ae60", "#2ecc71", "#a4c400", "#f1c40f", "#e67e22", "#d35400", "#c0392b"]
+        
         for col_l, label, color in zip(leg_dpe, dpe_labels, dpe_css):
+            # Petit badge de couleur centré au-dessus du bouton
             col_l.markdown(
-                f"<span style='display:inline-block;width:14px;height:14px;"
-                f"background:{color};border-radius:3px;margin-right:5px;'></span>DPE {label}",
-                unsafe_allow_html=True,
+                f"<div style='text-align: center; margin-bottom: 4px;'>"
+                f"<span style='display:inline-block;width:12px;height:12px;background:{color};border-radius:50%;'></span>"
+                f"</div>",
+                unsafe_allow_html=True
             )
-        df_hm = df_dpe_f.dropna(subset=["dpe_score"]).copy()
+            is_active = (st.session_state.selected_dpe_map_filter == label)
+            btn_type = "primary" if is_active else "secondary"
+            if col_l.button(f"DPE {label}", key=f"btn_dpe_map_filter_{label}", type=btn_type, use_container_width=True):
+                if is_active:
+                    st.session_state.selected_dpe_map_filter = None
+                else:
+                    st.session_state.selected_dpe_map_filter = label
+                st.rerun()
+                
+        # Filtrer dynamiquement les données selon le bouton DPE sélectionné
+        df_dots_dpe = df_dpe_f.copy()
+        if st.session_state.selected_dpe_map_filter is not None:
+            df_dots_dpe = df_dots_dpe[df_dots_dpe["etiquette_dpe"] == st.session_state.selected_dpe_map_filter]
+            st.caption(f"Filtre actif : Affichage uniquement des bâtiments de classe {st.session_state.selected_dpe_map_filter}. Re-cliquez sur le bouton pour tout afficher.")
+            
+        df_hm = df_dots_dpe.dropna(subset=["dpe_score"]).copy()
         layer_zones_dpe = pdk.Layer(
             "HeatmapLayer", data=df_hm,
             get_position="[lon, lat]", get_weight="dpe_score",
@@ -1135,7 +1345,7 @@ if nb_dpe > 0:
             pickable=False, opacity=0.6,
         )
         layer_dots_dpe = pdk.Layer(
-            "ScatterplotLayer", data=df_dpe_f,
+            "ScatterplotLayer", data=df_dots_dpe,
             get_position="[lon, lat]", get_radius=8,
             radius_min_pixels=1, radius_max_pixels=12,
             get_fill_color="color_dpe", pickable=True, auto_highlight=True, opacity=1.0,
@@ -1144,60 +1354,8 @@ if nb_dpe > 0:
             map_style=map_style, initial_view_state=VIEW_STATE_2D,
             layers=[layer_zones_dpe, layer_dots_dpe], tooltip=tooltip_dpe,
         ))
-
-    with tab_dpe_perf:
-        st.markdown("##### Répartition géographique des performances énergétiques")
-        if nb_dpe > 0:
-            df_hm = df_dpe_f.dropna(subset=["conso_5_usages_ep"]).copy()
-            layer_conso = pdk.Layer(
-                "HeatmapLayer", data=df_hm,
-                get_position="[lon, lat]", get_weight="conso_5_usages_ep",
-                radiusPixels=80, intensity=1.2, threshold=0.05,
-                color_range=[
-                    [39, 174, 96], [164, 196, 0], [241, 196, 15],
-                    [230, 126, 34], [192, 57, 43],
-                ],
-                pickable=False, opacity=0.6,
-            )
-            layer_dots_conso = pdk.Layer(
-                "ScatterplotLayer", data=df_dpe_f,
-                get_position="[lon, lat]", get_radius=8,
-                radius_min_pixels=1, radius_max_pixels=12,
-                get_fill_color="color_dpe", pickable=True, auto_highlight=True, opacity=1.0,
-            )
-            st.pydeck_chart(pdk.Deck(
-                map_style=map_style, initial_view_state=VIEW_STATE_2D,
-                layers=[layer_conso, layer_dots_conso], tooltip=tooltip_dpe,
-            ))
-
-    with tab_dpe_heat:
-        st.markdown("##### Carte de chaleur – Consommation energetique (kWh/m²/an)")
-        df_heat = df_dpe_f.dropna(subset=["conso_5_usages_ep"]).copy()
-        if len(df_heat) > 0:
-            layer_densite = pdk.Layer(
-                "HeatmapLayer", data=df_heat,
-                get_position="[lon, lat]", get_weight="conso_5_usages_ep",
-                aggregation='"SUM"', radiusPixels=80, intensity=1.2, threshold=0.05,
-                color_range=[
-                    [39, 174, 96], [164, 196, 0], [241, 196, 15],
-                    [230, 126, 34], [192, 57, 43],
-                ],
-                pickable=False, opacity=0.6,
-            )
-            layer_dots_d = pdk.Layer(
-                "ScatterplotLayer", data=df_heat,
-                get_position="[lon, lat]", get_radius=8,
-                radius_min_pixels=1, radius_max_pixels=12,
-                get_fill_color="color_dpe", pickable=True, auto_highlight=True, opacity=1.0,
-            )
-            st.pydeck_chart(pdk.Deck(
-                map_style=map_style, initial_view_state=VIEW_STATE_2D,
-                layers=[layer_densite, layer_dots_d], tooltip=tooltip_dpe,
-            ))
-        else:
-            st.warning("Aucune donnée de consommation pour les filtres actuels.")
-else:
-    st.info("Aucun logement DPE ne correspond à vos filtres.")
+    else:
+        st.info("Aucun logement DPE ne correspond à vos filtres.")
 
 st.divider()
 
@@ -1285,33 +1443,33 @@ fig_prices = go.Figure()
 fig_prices.add_trace(go.Scatter(
     x=df_prices["Année"], y=df_prices["Appartement"],
     mode='lines+markers', name='Appartement',
-    line=dict(color='#3498db', width=3, shape='spline'),
-    marker=dict(size=8, color='#3498db', line=dict(color='#ffffff', width=1.5))
+    line=dict(color=color_appart, width=3, shape='spline'),
+    marker=dict(size=8, color=color_appart, line=dict(color='#ffffff', width=1.5))
 ))
 fig_prices.add_trace(go.Scatter(
     x=df_prices["Année"], y=df_prices["Maison"],
     mode='lines+markers', name='Maison',
-    line=dict(color='#2ecc71', width=3, shape='spline'),
-    marker=dict(size=8, color='#2ecc71', line=dict(color='#ffffff', width=1.5))
+    line=dict(color=color_maison, width=3, shape='spline'),
+    marker=dict(size=8, color=color_maison, line=dict(color='#ffffff', width=1.5))
 ))
 fig_prices.update_layout(
     margin=dict(l=40, r=20, t=10, b=40),
     height=320,
     plot_bgcolor='rgba(0,0,0,0)',
     paper_bgcolor='rgba(0,0,0,0)',
-    legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(color='#111827')),
+    legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5, font=dict(color=_TEXT_PRIMARY)),
     xaxis=dict(
         showgrid=False,
         tickmode='linear',
-        tickfont=dict(color='#64748b'),
-        linecolor='#cbd5e1'
+        tickfont=dict(color=_CHART_TEXT),
+        linecolor=_CHART_LINE
     ),
     yaxis=dict(
         showgrid=True,
-        gridcolor='#e2e8f0',
+        gridcolor=_CHART_GRID,
         ticksuffix=' €/m²',
-        tickfont=dict(color='#64748b'),
-        linecolor='#cbd5e1'
+        tickfont=dict(color=_CHART_TEXT),
+        linecolor=_CHART_LINE
     )
 )
 st.plotly_chart(fig_prices, use_container_width=True)
@@ -1334,11 +1492,11 @@ with col_g1:
     fig_age = go.Figure()
     fig_age.add_trace(go.Bar(
         x=periods, y=[1, 18, 34, 29, 22],
-        name='Maison', marker_color='#2ecc71'
+        name='Maison', marker_color=color_maison
     ))
     fig_age.add_trace(go.Bar(
         x=periods, y=[0.5, 10, 23, 53, 16],
-        name='Appartement', marker_color='#3498db'
+        name='Appartement', marker_color=color_appart
     ))
     fig_age.update_layout(
         barmode='group',
@@ -1346,9 +1504,9 @@ with col_g1:
         height=280,
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
-        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5, font=dict(color='#111827')),
-        xaxis=dict(showgrid=False, tickfont=dict(color='#64748b')),
-        yaxis=dict(showgrid=True, gridcolor='#e2e8f0', ticksuffix='%', tickfont=dict(color='#64748b'))
+        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5, font=dict(color=_TEXT_PRIMARY)),
+        xaxis=dict(showgrid=False, tickfont=dict(color=_CHART_TEXT)),
+        yaxis=dict(showgrid=True, gridcolor=_CHART_GRID, ticksuffix='%', tickfont=dict(color=_CHART_TEXT))
     )
     st.plotly_chart(fig_age, use_container_width=True)
 
@@ -1368,7 +1526,7 @@ with col_g2:
     fig_typo = go.Figure()
     fig_typo.add_trace(go.Bar(
         x=typos, y=shares,
-        marker_color='#3498db',
+        marker_color=color_appart,
         showlegend=False
     ))
     fig_typo.update_layout(
@@ -1376,21 +1534,9 @@ with col_g2:
         height=280,
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
-        xaxis=dict(showgrid=False, tickfont=dict(color='#64748b')),
-        yaxis=dict(showgrid=True, gridcolor='#e2e8f0', ticksuffix='%', tickfont=dict(color='#64748b'))
+        xaxis=dict(showgrid=False, tickfont=dict(color=_CHART_TEXT)),
+        yaxis=dict(showgrid=True, gridcolor=_CHART_GRID, ticksuffix='%', tickfont=dict(color=_CHART_TEXT))
     )
     st.plotly_chart(fig_typo, use_container_width=True)
 
-
-# ---------------------------------------------------------------------------
-# 9. PIED DE PAGE
-# ---------------------------------------------------------------------------
-st.markdown("---")
-st.markdown(
-    "<small>Sources : ADEME (DPE logements existants 44) "
-    "| DGFiP (DVF 2025, dept 44) "
-    "| Base Adresse Nationale (géocodage) "
-    "| OpenStreetMap (stations transport 44) "
-    "| Projet SAE-601 – IUT Nantes</small>",
-    unsafe_allow_html=True,
-)
+
