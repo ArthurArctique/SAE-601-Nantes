@@ -71,56 +71,8 @@ def run_enrichment_pipeline():
 
     dvf['code_insee'] = dvf.apply(get_insee_code, axis=1)
 
-    import io
-    def geocode_batch_api(df, batch_size=5000):
-        results_lat = np.full(len(df), np.nan)
-        results_lon = np.full(len(df), np.nan)
-        unique_addrs = df[['adresse_normalisee', 'code_insee']].drop_duplicates()
-        geocoded_cache = {}
-        total_batches = (len(unique_addrs) + batch_size - 1) // batch_size
-
-        for batch_idx in range(total_batches):
-            batch = unique_addrs.iloc[batch_idx * batch_size: (batch_idx + 1) * batch_size]
-            csv_buffer = io.StringIO()
-            csv_buffer.write("adresse,citycode\n")
-            for _, row in batch.iterrows():
-                addr = str(row['adresse_normalisee']).replace('"', '""')
-                csv_buffer.write(f'"{addr}",{row["code_insee"]}\n')
-
-            boundary = '----FormBoundary' + str(int(time.time()))
-            body = (
-                f'--{boundary}\r\nContent-Disposition: form-data; name="data"; filename="addresses.csv"\r\nContent-Type: text/csv\r\n\r\n'
-            ).encode('utf-8') + csv_buffer.getvalue().encode('utf-8') + (
-                f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="columns"\r\n\r\nadresse\r\n'
-                f'--{boundary}\r\nContent-Disposition: form-data; name="citycode"\r\n\r\ncitycode\r\n--{boundary}--\r\n'
-            ).encode('utf-8')
-
-            req = urllib.request.Request("https://api-adresse.data.gouv.fr/search/csv/", data=body, method='POST')
-            req.add_header('Content-Type', f'multipart/form-data; boundary={boundary}')
-            
-            for attempt in range(3):
-                try:
-                    with urllib.request.urlopen(req, timeout=120) as res:
-                        reader = csv.DictReader(io.StringIO(res.read().decode('utf-8')))
-                        for row in reader:
-                            score = float(row.get('result_score') or 0)
-                            if row.get('latitude') and row.get('longitude') and score >= 0.4:
-                                geocoded_cache[row['adresse']] = (float(row['latitude']), float(row['longitude']))
-                    break
-                except Exception as e:
-                    time.sleep(2)
-            time.sleep(0.5)
-
-        for i, (_, row) in enumerate(df.iterrows()):
-            addr = row['adresse_normalisee']
-            if addr in geocoded_cache:
-                results_lat[i], results_lon[i] = geocoded_cache[addr]
-        return results_lat, results_lon
-
-    print("Géocodage API BAN...")
-    lats, lons = geocode_batch_api(dvf)
-    dvf['lat'], dvf['lon'] = lats, lons
-    print(f"Géocodés : {dvf['lat'].notna().sum()} / {len(dvf)}")
+    print("Géocodage...")
+    print(f"Géocodés nativement via Geo-DVF : {dvf['lat'].notna().sum()} / {len(dvf)}")
     
     print("Appariement DPE...")
     if os.path.exists("data/dpe/dpe-multidept.csv"):
@@ -215,24 +167,40 @@ if __name__ == '__main__':
     for d in ["data/dvf", "data/ban", "data/dpe", "data/insee", "data/old_insee", "data/admin", "data/transport", "data/ecoles", "data/peb"]:
         os.makedirs(d, exist_ok=True)
 
-    # 1. DVF
+    # 1. Geo-DVF (Données pré-géocodées)
     start_time_local = time.time()
-    zip_dvf = "data/dvf/valeursfoncieres-2025.txt.zip"
-    download("https://static.data.gouv.fr/resources/demandes-de-valeurs-foncieres/20260405-002321/valeursfoncieres-2025.txt.zip", zip_dvf)
-    with zipfile.ZipFile(zip_dvf, 'r') as z:
-        txt_name = [name for name in z.namelist() if name.lower().endswith('.txt')][0]
-        z.extract(txt_name, "data/dvf")
-    txt_path = f"data/dvf/{txt_name}"
-    with open(txt_path, 'r', encoding='utf-8', errors='ignore') as infile, \
-         open("data/dvf/dvf-2025-multidept.csv", 'w', encoding='utf-8') as outfile:
-        header = infile.readline()
-        outfile.write(header.replace('|', ';'))
-        for line in infile:
-            parts = line.split('|')
-            if len(parts) > 18 and parts[18] in DEPARTEMENTS:
-                outfile.write(line.replace('|', ';'))
-    os.remove(zip_dvf)
-    os.remove(txt_path)
+    dfs = []
+    for dept in DEPARTEMENTS:
+        print(f"Téléchargement Geo-DVF pour le département {dept}...")
+        url_dvf = f"https://files.data.gouv.fr/geo-dvf/latest/csv/2025/departements/{dept}.csv.gz"
+        try:
+            df_dept = pd.read_csv(url_dvf, low_memory=False)
+            dfs.append(df_dept)
+        except Exception as e:
+            print(f"Erreur téléchargement Geo-DVF pour {dept}: {e}")
+            
+    if dfs:
+        dvf_total = pd.concat(dfs, ignore_index=True)
+        rename_map = {
+            'valeur_fonciere': 'Valeur fonciere',
+            'type_local': 'Type local',
+            'surface_reelle_bati': 'Surface reelle bati',
+            'nombre_pieces_principales': 'Nombre pieces principales',
+            'adresse_numero': 'No voie',
+            'adresse_nom_voie': 'Voie',
+            'nom_commune': 'Commune',
+            'code_departement': 'Code departement',
+            'code_commune': 'Code commune',
+            'latitude': 'lat',
+            'longitude': 'lon'
+        }
+        dvf_total.rename(columns=rename_map, inplace=True)
+        dvf_total['Type de voie'] = '' 
+        
+        dvf_total.to_csv("data/dvf/dvf-2025-multidept.csv", sep=';', index=False)
+        print(f"-> Geo-DVF OK : {len(dvf_total)} transactions.")
+    else:
+        print("Erreur: Aucun département téléchargé pour DVF.")
 
     print(f'\n[Timer] Etape 1 terminée en {time.time() - start_time_local:.2f} secondes.')
     # 2. BAN (téléchargement par département)
