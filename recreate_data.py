@@ -314,7 +314,7 @@ if __name__ == '__main__':
             insee_codes = [f"{dept}{str(i).zfill(3)}" for i in range(1, 1000)]
             
             def fetch_dpe_for_insee(code_insee):
-                nonlocal total_extracted
+                global total_extracted
                 url = f"https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/lines?size=10000&q_mode=simple&qs=code_insee_ban:{code_insee}&format=json"
                 local_count = 0
                 while url:
