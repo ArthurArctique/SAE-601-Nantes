@@ -27,45 +27,7 @@ def download(url, path):
 
 
 
-def consolidate_insee():
-    print("\n=== DEBUT DE LA CONSOLIDATION DES DONNEES INSEE ===")
-    
-    # 2021
-    files_2021 = sorted(glob.glob("data/old_insee/FILO2021_*_COM.csv"))
-    print(f"Fichiers 2021 trouvés : {len(files_2021)}")
-    df_2021 = None
-    for f in files_2021:
-        print(f"Lecture de {os.path.basename(f)}...")
-        df = pd.read_csv(f, sep=";", low_memory=False)
-        key = df.columns[0]
-        df[key] = df[key].astype(str).str.zfill(5)
-        df_dept = df[df[key].str.startswith(tuple(DEPARTEMENTS))].copy()
-        df_dept = df_dept.set_index(key)
-        if df_2021 is None:
-            df_2021 = df_dept
-        else:
-            dup_cols = [c for c in df_dept.columns if c in df_2021.columns]
-            df_dept = df_dept.drop(columns=dup_cols)
-            df_2021 = df_2021.join(df_dept, how="outer")
-            
-    if df_2021 is not None and not df_2021.empty:
-        os.makedirs("data/insee", exist_ok=True)
-        out_2021 = "data/insee/insee_communes_multidept_2021.csv"
-        df_2021.to_csv(out_2021, sep=";")
-        print(f"-> Succès : Fichier unique 2021 créé ({len(df_2021)} communes)")
-        
-    # 2023
-    f_2023 = "data/old_insee/DS_FILOSOFI_CC_2023_data.csv"
-    if os.path.exists(f_2023):
-        print(f"Lecture de {os.path.basename(f_2023)}...")
-        df_2023 = pd.read_csv(f_2023, sep=";", low_memory=False)
-        df_2023["GEO"] = df_2023["GEO"].astype(str).str.zfill(5)
-        df_dept_2023 = df_2023[(df_2023["GEO"].str.startswith(tuple(DEPARTEMENTS))) & (df_2023["GEO_OBJECT"] == "COM")].copy()
-        if not df_dept_2023.empty:
-            df_pivot = df_dept_2023.pivot(index="GEO", columns="FILOSOFI_MEASURE", values="OBS_VALUE")
-            df_pivot.to_csv("data/old_insee/insee_communes_multidept_2023.csv", sep=";")
-            print(f"-> Succès : Fichier unique 2023 créé ({len(df_pivot)} communes)")
-    print("=== FIN DE LA CONSOLIDATION AVEC SUCCÈS ===\n")
+
 
 def run_enrichment_pipeline():
     print("=== DEBUT DE L'EXECUTION DU PIPELINE DE DONNEES ===")
@@ -344,15 +306,58 @@ if __name__ == '__main__':
             print(f"\n  -> Téléchargement DPE {dept} terminé ! Total: {total_extracted} DPE extraits.")
 
     print(f'\n[Timer] Etape 3 terminée en {time.time() - start_time_local:.2f} secondes.')
-    # 4. INSEE
+    # 4. INSEE (Streaming en mémoire)
+    import io
     start_time_local = time.time()
-    zip_2021 = "data/old_insee/indic-struct-distrib-revenu-2021-COMMUNES_csv.zip"
-    download("https://www.insee.fr/fr/statistiques/fichier/7756855/indic-struct-distrib-revenu-2021-COMMUNES_csv.zip", zip_2021)
-    with zipfile.ZipFile(zip_2021, 'r') as z: z.extractall("data/old_insee")
     
-    zip_2023 = "data/old_insee/FILOSOFI_CC_csv.zip"
-    download("https://www.insee.fr/fr/statistiques/fichier/8984752/FILOSOFI_CC_csv.zip", zip_2023)
-    with zipfile.ZipFile(zip_2023, 'r') as z: z.extractall("data/old_insee")
+    # 2021
+    print("Téléchargement et filtrage INSEE 2021 en mémoire...")
+    url_2021 = "https://www.insee.fr/fr/statistiques/fichier/7756855/indic-struct-distrib-revenu-2021-COMMUNES_csv.zip"
+    req_2021 = urllib.request.Request(url_2021, headers={'User-Agent': 'Mozilla/5.0'})
+    try:
+        with urllib.request.urlopen(req_2021) as res:
+            with zipfile.ZipFile(io.BytesIO(res.read())) as z:
+                df_2021 = None
+                for fname in [f for f in z.namelist() if f.endswith('.csv') and 'COM' in f]:
+                    df = pd.read_csv(z.open(fname), sep=";", low_memory=False)
+                    key = df.columns[0]
+                    df[key] = df[key].astype(str).str.zfill(5)
+                    df_dept = df[df[key].str.startswith(tuple(DEPARTEMENTS))].copy()
+                    df_dept = df_dept.set_index(key)
+                    if df_2021 is None:
+                        df_2021 = df_dept
+                    else:
+                        dup_cols = [c for c in df_dept.columns if c in df_2021.columns]
+                        df_dept = df_dept.drop(columns=dup_cols)
+                        df_2021 = df_2021.join(df_dept, how="outer")
+                
+                if df_2021 is not None and not df_2021.empty:
+                    os.makedirs("data/insee", exist_ok=True)
+                    df_2021.to_csv("data/insee/insee_communes_multidept_2021.csv", sep=";")
+                    print(f"-> INSEE 2021 OK ({len(df_2021)} communes extraites à la volée).")
+    except Exception as e:
+        print(f"Erreur INSEE 2021: {e}")
+
+    # 2023
+    print("Téléchargement et filtrage INSEE 2023 en mémoire...")
+    url_2023 = "https://www.insee.fr/fr/statistiques/fichier/8984752/FILOSOFI_CC_csv.zip"
+    req_2023 = urllib.request.Request(url_2023, headers={'User-Agent': 'Mozilla/5.0'})
+    try:
+        with urllib.request.urlopen(req_2023) as res:
+            with zipfile.ZipFile(io.BytesIO(res.read())) as z:
+                for fname in z.namelist():
+                    if fname.endswith('.csv'):
+                        df_2023 = pd.read_csv(z.open(fname), sep=";", low_memory=False)
+                        df_2023["GEO"] = df_2023["GEO"].astype(str).str.zfill(5)
+                        df_dept_2023 = df_2023[(df_2023["GEO"].str.startswith(tuple(DEPARTEMENTS))) & (df_2023["GEO_OBJECT"] == "COM")].copy()
+                        if not df_dept_2023.empty:
+                            df_pivot = df_dept_2023.pivot(index="GEO", columns="FILOSOFI_MEASURE", values="OBS_VALUE")
+                            os.makedirs("data/old_insee", exist_ok=True)
+                            df_pivot.to_csv("data/old_insee/insee_communes_multidept_2023.csv", sep=";")
+                            print(f"-> INSEE 2023 OK ({len(df_pivot)} communes extraites à la volée).")
+                        break
+    except Exception as e:
+        print(f"Erreur INSEE 2023: {e}")
 
     print(f'\n[Timer] Etape 4 terminée en {time.time() - start_time_local:.2f} secondes.')
     # 5. Communes GeoJSON
@@ -476,7 +481,6 @@ if __name__ == '__main__':
     print(f'\n[Timer] Etape 7 terminée en {time.time() - start_time_local:.2f} secondes.')
     # 8. In-Process Consolidation & Enrichment
     start_time_local = time.time()
-    consolidate_insee()
     run_enrichment_pipeline()
     print(f'\n[Timer] Etape 8 terminée en {time.time() - start_time_local:.2f} secondes.')
     print("Done!")
