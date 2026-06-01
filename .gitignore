@@ -1,4 +1,16 @@
+# Data and DB
 data/*
-.venv/
 *.duckdb
+*.duckdb.wal
+__duckdb_export_temp__/*
+
+# Virtual Environment
+.venv/*
+.venv/
+__pycache__/
+
+# macOS
 .DS_Store
+
+# Misc
+modele_donnees.md
