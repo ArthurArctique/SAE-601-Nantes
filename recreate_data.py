@@ -16,7 +16,7 @@ import time
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
-DEPARTEMENTS = ["44"] # Liste des départements à traiter
+DEPARTEMENTS = ["44","35","69"] # Liste des départements à traiter
 
 def download(url, path):
     print(f"Downloading {url} to {path}...")
@@ -304,16 +304,26 @@ if __name__ == '__main__':
         for dept in DEPARTEMENTS:
             print(f"Téléchargement DPE pour le département {dept}...")
             url = f"https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/lines?size=10000&q_mode=simple&qs=code_departement_ban:{dept}&format=json"
+            page = 1
+            total_extracted = 0
             while url:
+                print(f"  -> Récupération de la page {page} (taille lot: 10000)... ", end="", flush=True)
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                 try:
                     with urllib.request.urlopen(req) as res:
                         data = json.loads(res.read())
-                        for row in data.get('results', []):
+                        results = data.get('results', [])
+                        for row in results:
                             w.writerow([row.get(c, '') for c in dpe_cols])
+                            
+                        total_extracted += len(results)
+                        total_available = data.get('total', 'inconnu')
+                        print(f"OK ({len(results)} lignes). Cumul: {total_extracted} / {total_available}.")
+                        
                         url = data.get('next')
+                        page += 1
                 except Exception as e:
-                    print(f"Erreur API ADEME DPE: {e}")
+                    print(f"\n  [ERREUR] API ADEME DPE: {e}")
                     break
 
     # 4. INSEE
