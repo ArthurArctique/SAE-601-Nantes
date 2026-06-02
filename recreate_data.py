@@ -164,7 +164,7 @@ def run_enrichment_pipeline():
 if __name__ == '__main__':
     import time
     start_time_global = time.time()
-    for d in ["data/dvf", "data/ban", "data/dpe", "data/insee", "data/old_insee", "data/admin", "data/transport", "data/ecoles", "data/peb"]:
+    for d in ["data/dvf", "data/ban", "data/dpe", "data/insee", "data/admin", "data/transport", "data/ecoles", "data/peb"]:
         os.makedirs(d, exist_ok=True)
 
     # 1. Geo-DVF (Données pré-géocodées)
@@ -235,12 +235,23 @@ if __name__ == '__main__':
         w.writerow(dpe_cols)
         csv_lock = threading.Lock()
         
+        # Load unique INSEE codes from DVF to avoid 999 requests per department
+        try:
+            df_dvf = pd.read_csv("data/dvf/dvf-2025-multidept.csv", usecols=['Code departement', 'Code commune'], dtype=str)
+            df_dvf['code_insee'] = df_dvf['Code departement'].str.split('.').str[0].str.zfill(2) + df_dvf['Code commune'].str.split('.').str[0].str.zfill(3)
+            all_insee_codes = df_dvf['code_insee'].dropna().unique().tolist()
+        except Exception:
+            all_insee_codes = []
+
         for dept in DEPARTEMENTS:
             print(f"Téléchargement DPE (Multithreadé) pour le département {dept}...")
             total_extracted = 0
             
-            # Générer la liste des 999 codes INSEE possibles pour un département (ex: 44001 à 44999)
-            insee_codes = [f"{dept}{str(i).zfill(3)}" for i in range(1, 1000)]
+            # Générer la liste des codes INSEE réels
+            if all_insee_codes:
+                insee_codes = [c for c in all_insee_codes if c.startswith(dept)]
+            else:
+                insee_codes = [f"{dept}{str(i).zfill(3)}" for i in range(1, 1000)]
             
             def fetch_dpe_for_insee(code_insee):
                 global total_extracted
@@ -286,8 +297,12 @@ if __name__ == '__main__':
         with urllib.request.urlopen(req_2021) as res:
             with zipfile.ZipFile(io.BytesIO(res.read())) as z:
                 df_2021 = None
+                useful_cols = {'CODGEO', 'NBMEN21', 'Q221', 'GI21', 'PACT21', 'PCHO21', 'PPEN21'}
                 for fname in [f for f in z.namelist() if f.endswith('.csv') and 'COM' in f]:
-                    df = pd.read_csv(z.open(fname), sep=";", low_memory=False)
+                    with z.open(fname) as f:
+                        cols = pd.read_csv(f, sep=";", nrows=0).columns
+                    usecols = [c for c in cols if c in useful_cols or c == cols[0]]
+                    df = pd.read_csv(z.open(fname), sep=";", usecols=usecols, low_memory=False)
                     key = df.columns[0]
                     df[key] = df[key].astype(str).str.zfill(5)
                     df_dept = df[df[key].str.startswith(tuple(DEPARTEMENTS))].copy()
@@ -306,26 +321,7 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"Erreur INSEE 2021: {e}")
 
-    # 2023
-    print("Téléchargement et filtrage INSEE 2023 en mémoire...")
-    url_2023 = "https://www.insee.fr/fr/statistiques/fichier/8984752/FILOSOFI_CC_csv.zip"
-    req_2023 = urllib.request.Request(url_2023, headers={'User-Agent': 'Mozilla/5.0'})
-    try:
-        with urllib.request.urlopen(req_2023) as res:
-            with zipfile.ZipFile(io.BytesIO(res.read())) as z:
-                for fname in z.namelist():
-                    if fname.endswith('.csv'):
-                        df_2023 = pd.read_csv(z.open(fname), sep=";", low_memory=False)
-                        df_2023["GEO"] = df_2023["GEO"].astype(str).str.zfill(5)
-                        df_dept_2023 = df_2023[(df_2023["GEO"].str.startswith(tuple(DEPARTEMENTS))) & (df_2023["GEO_OBJECT"] == "COM")].copy()
-                        if not df_dept_2023.empty:
-                            df_pivot = df_dept_2023.pivot(index="GEO", columns="FILOSOFI_MEASURE", values="OBS_VALUE")
-                            os.makedirs("data/old_insee", exist_ok=True)
-                            df_pivot.to_csv("data/old_insee/insee_communes_multidept_2023.csv", sep=";")
-                            print(f"-> INSEE 2023 OK ({len(df_pivot)} communes extraites à la volée).")
-                        break
-    except Exception as e:
-        print(f"Erreur INSEE 2023: {e}")
+    # Fin INSEE 2021
 
     print(f'\n[Timer] Etape 4 terminée en {time.time() - start_time_local:.2f} secondes.')
     # 5. Communes GeoJSON
