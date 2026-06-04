@@ -237,7 +237,7 @@ if __name__ == '__main__':
         
         # Load unique INSEE codes from DVF to avoid 999 requests per department
         try:
-            df_dvf = pd.read_csv("data/dvf/dvf-2025-multidept.csv", usecols=['Code departement', 'Code commune'], dtype=str)
+            df_dvf = pd.read_csv("data/dvf/dvf-2025-multidept.csv", usecols=['Code departement', 'Code commune'], dtype=str, sep=';')
             df_dvf['code_insee'] = df_dvf['Code departement'].str.split('.').str[0].str.zfill(2) + df_dvf['Code commune'].str.split('.').str[0].str.zfill(3)
             all_insee_codes = df_dvf['code_insee'].dropna().unique().tolist()
         except Exception:
