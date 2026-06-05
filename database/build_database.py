@@ -42,11 +42,13 @@ def normalize_address(num, type_voie, nom_voie, commune):
 def table_exists(con, table_name):
     return con.execute(f"SELECT COUNT(*) FROM duckdb_tables() WHERE table_name='{table_name}' AND schema_name='main'").fetchone()[0] > 0
 
-def create_or_insert(con, table_name, df_name):
+def create_or_insert(con, table_name, df):
+    con.register('temp_df', df)
     if table_exists(con, table_name):
-        con.execute(f"INSERT INTO {table_name} SELECT * FROM {df_name}")
+        con.execute(f"INSERT INTO {table_name} SELECT * FROM temp_df")
     else:
-        con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM {df_name}")
+        con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM temp_df")
+    con.unregister('temp_df')
 
 def main():
     start_time_global = time.time()
@@ -142,7 +144,7 @@ def main():
     if ban_dfs:
         ban_total = pd.concat(ban_dfs, ignore_index=True)
         ban_total.rename(columns={'id': 'id_ban'}, inplace=True)
-        create_or_insert(con, "dim_ban", "ban_total")
+        create_or_insert(con, "dim_ban", ban_total)
         if not table_exists(con, "dim_ban"): # won't happen but safe
             con.execute("CREATE INDEX idx_dim_ban_code_insee ON dim_ban(code_insee)")
         del ban_total
@@ -179,7 +181,7 @@ def main():
                         
         if df_insee is not None and not df_insee.empty:
             df_insee = df_insee.reset_index().rename(columns={'index': 'CODGEO', df_insee.index.name: 'CODGEO'})
-            create_or_insert(con, "dim_insee", "df_insee")
+            create_or_insert(con, "dim_insee", df_insee)
             try: con.execute("CREATE INDEX idx_dim_insee_codgeo ON dim_insee(CODGEO)")
             except: pass
             insee_lookup = df_insee.set_index('CODGEO')['Q221'].to_dict()
@@ -237,7 +239,7 @@ def main():
                 'postcode': df_ecoles['Code_postal'],
                 'amenity': 'school'
             })
-            create_or_insert(con, "dim_ecoles", "df_ecoles_out")
+            create_or_insert(con, "dim_ecoles", df_ecoles_out)
         else:
             df_ecoles_out = pd.DataFrame()
     except Exception as e:
@@ -284,7 +286,7 @@ def main():
                 'name': df_trans['stop_name'],
                 'railway_type': 'station'
             })
-            create_or_insert(con, "dim_transport", "df_trans_out")
+            create_or_insert(con, "dim_transport", df_trans_out)
         else:
             df_trans_out = pd.DataFrame()
     except Exception as e:
@@ -436,7 +438,7 @@ def main():
             if c not in dvf.columns: dvf[c] = np.nan
         dvf_out = dvf[out_cols].copy()
         
-        create_or_insert(con, "fait_transactions", "dvf_out")
+        create_or_insert(con, "fait_transactions", dvf_out)
         try:
             con.execute("CREATE INDEX idx_ft_code_insee ON fait_transactions(code_insee)")
             con.execute("CREATE INDEX idx_ft_type_bien ON fait_transactions(type_bien)")

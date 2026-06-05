@@ -276,33 +276,65 @@ with col_controls:
         
         if st.button("🚀 Lancer l'extraction et la mise à jour", width="stretch", type="primary"):
             import subprocess
+            import re
             
-            with st.status("Mise à jour de la base de données en cours...", expanded=True) as status:
-                cmd = ["python3", "database/build_database.py"] + selected_list
-                process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True
-                )
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            details_text = st.empty()
+            
+            status_text.markdown("**🔄 Initialisation du processus...**")
+            
+            cmd = ["python3", "database/build_database.py"] + selected_list
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            error_logs = []
+            
+            for line in process.stdout:
+                line = line.strip()
+                if not line: continue
                 
-                log_container = st.empty()
-                logs = []
-                for line in process.stdout:
-                    logs.append(line.strip())
-                    log_container.code("\\n".join(logs[-8:]), language="text") # Plus court pour éviter le scroll
-                    
-                process.wait()
+                # Check for main steps (e.g. "=== 1. EXTRACTION DPE ===")
+                match_step = re.search(r"===\s*(\d+)\.\s*(.*?)\s*===", line)
+                if match_step:
+                    step_num = int(match_step.group(1))
+                    step_name = match_step.group(2)
+                    progress = min(step_num * 10, 95) # Up to 95% until completely finished
+                    progress_bar.progress(progress)
+                    status_text.markdown(f"**Étape {step_num}/9 : {step_name.title()}**")
+                    details_text.empty()
+                elif line.startswith("==="):
+                    # Initialization or other main step without number
+                    status_text.markdown(f"**{line.replace('===', '').strip().title()}**")
+                elif line.startswith("->"):
+                    # Sub-steps (departments)
+                    details_text.markdown(f"*{line.strip()}*")
                 
-                if process.returncode == 0:
-                    status.update(label="Mise à jour terminée avec succès !", state="complete", expanded=False)
-                    st.success("Données actualisées et prêtes.")
-                    st.balloons()
-                else:
-                    status.update(label="Erreur lors de la mise à jour.", state="error", expanded=True)
-                    st.error("Le script a rencontré une erreur.")
+                # Store logs in case of error
+                error_logs.append(line)
+                if len(error_logs) > 50:
+                    error_logs.pop(0)
+                
+            process.wait()
+            
+            if process.returncode == 0:
+                progress_bar.progress(100)
+                status_text.markdown("**✅ Mise à jour terminée avec succès !**")
+                details_text.empty()
+                st.success("Toutes les données ont été actualisées et intégrées à la base DuckDB.")
+                st.balloons()
+            else:
+                progress_bar.progress(100)
+                status_text.markdown("**❌ Erreur lors de la mise à jour.**")
+                details_text.empty()
+                st.error("Le script a rencontré une erreur fatale. Voici les dernières lignes du journal :")
+                st.code("\\n".join(error_logs[-20:]), language="text")
     else:
         st.info("Sélectionnez au moins un département pour mettre à jour la base.")
 
