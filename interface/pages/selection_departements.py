@@ -190,12 +190,19 @@ if "selected_depts" not in st.session_state:
 # ---------------------------------------------------------------------------
 # HEADER
 # ---------------------------------------------------------------------------
-st.markdown("""
-<div class="main-header">
-    <h1>🗺️ Extraction & Préparation des Données</h1>
-    <p>Sélectionnez les départements pour construire la base de données DuckDB. Le fond de carte interactif est synchronisé.</p>
-</div>
-""", unsafe_allow_html=True)
+col_head1, col_head2 = st.columns([4, 1])
+with col_head1:
+    st.markdown("""
+    <div class="main-header">
+        <h1>🗺️ Extraction & Préparation des Données</h1>
+        <p>Sélectionnez les départements pour construire la base de données DuckDB. Le fond de carte interactif est synchronisé.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_head2:
+    st.write("") # Pour aligner verticalement avec le titre
+    if st.button("⬅️ Retour à l'Observatoire", use_container_width=True):
+        st.switch_page("interface.py")
 
 # ---------------------------------------------------------------------------
 # LAYOUT : Contrôles à gauche, Carte à droite (Proportions adaptées pour No-Scroll)
