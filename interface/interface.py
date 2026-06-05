@@ -513,7 +513,7 @@ df_transport = load_transport()
 # ---------------------------------------------------------------------------
 st.sidebar.markdown("### ⚙️ Base de Données")
 if st.sidebar.button("Mise à jour des départements", use_container_width=True, type="primary"):
-    st.switch_page("interface/selection_departements.py")
+    st.switch_page("pages/selection_departements.py")
 st.sidebar.markdown("---")
 
 st.sidebar.title("Filtres d'Analyse")

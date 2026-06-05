@@ -337,7 +337,7 @@ with col_controls:
                     st.rerun()
             with col2:
                 if st.button("🏠 Accéder à l'Observatoire", type="primary", width="stretch"):
-                    st.switch_page("interface/interface.py")
+                    st.switch_page("interface.py")
         else:
             progress_bar.progress(100)
             status_text.markdown("**❌ Erreur lors de la mise à jour.**")
