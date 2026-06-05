@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pydeck as pdk
-from pyproj import Transformer
 import math
 import random
 import plotly.graph_objects as go
+import duckdb
+import os
 
 # ---------------------------------------------------------------------------
 # 1. CONFIGURATION DE LA PAGE
@@ -275,31 +276,71 @@ def _make_building_polygon(lon, lat, type_local="Appartement", seed=None):
     return polygon
 
 
-# Convertisseur Lambert93 -> WGS84
-_transformer = Transformer.from_crs("EPSG:2154", "EPSG:4326", always_xy=True)
-
 # ---------------------------------------------------------------------------
-# 2. CHARGEMENT DES DONNÉES
+# 2. CHARGEMENT DES DONNÉES (DuckDB)
 # ---------------------------------------------------------------------------
-
-import duckdb
-import os
 
 DB_PATH = "sae601_nantes.duckdb"
 
+
+@st.cache_data(show_spinner="Chargement des départements disponibles…")
+def get_available_depts(_db_mtime):
+    """Liste les départements présents dans la base DuckDB."""
+    con = duckdb.connect(DB_PATH, read_only=True)
+    df = con.execute("""
+        SELECT DISTINCT SUBSTRING(CAST(code_insee AS VARCHAR), 1, 2) AS dept
+        FROM fait_transactions
+        ORDER BY dept
+    """).df()
+    con.close()
+    return df["dept"].tolist()
+
+
+DEPT_NAMES = {
+    "01": "Ain", "02": "Aisne", "03": "Allier", "04": "Alpes-de-Haute-Provence",
+    "05": "Hautes-Alpes", "06": "Alpes-Maritimes", "07": "Ardèche", "08": "Ardennes",
+    "09": "Ariège", "10": "Aube", "11": "Aude", "12": "Aveyron",
+    "13": "Bouches-du-Rhône", "14": "Calvados", "15": "Cantal", "16": "Charente",
+    "17": "Charente-Maritime", "18": "Cher", "19": "Corrèze", "2A": "Corse-du-Sud",
+    "2B": "Haute-Corse", "21": "Côte-d'Or", "22": "Côtes-d'Armor", "23": "Creuse",
+    "24": "Dordogne", "25": "Doubs", "26": "Drôme", "27": "Eure",
+    "28": "Eure-et-Loir", "29": "Finistère", "30": "Gard", "31": "Haute-Garonne",
+    "32": "Gers", "33": "Gironde", "34": "Hérault", "35": "Ille-et-Vilaine",
+    "36": "Indre", "37": "Indre-et-Loire", "38": "Isère", "39": "Jura",
+    "40": "Landes", "41": "Loir-et-Cher", "42": "Loire", "43": "Haute-Loire",
+    "44": "Loire-Atlantique", "45": "Loiret", "46": "Lot", "47": "Lot-et-Garonne",
+    "48": "Lozère", "49": "Maine-et-Loire", "50": "Manche", "51": "Marne",
+    "52": "Haute-Marne", "53": "Mayenne", "54": "Meurthe-et-Moselle", "55": "Meuse",
+    "56": "Morbihan", "57": "Moselle", "58": "Nièvre", "59": "Nord",
+    "60": "Oise", "61": "Orne", "62": "Pas-de-Calais", "63": "Puy-de-Dôme",
+    "64": "Pyrénées-Atlantiques", "65": "Hautes-Pyrénées", "66": "Pyrénées-Orientales",
+    "67": "Bas-Rhin", "68": "Haut-Rhin", "69": "Rhône", "70": "Haute-Saône",
+    "71": "Saône-et-Loire", "72": "Sarthe", "73": "Savoie", "74": "Haute-Savoie",
+    "75": "Paris", "76": "Seine-Maritime", "77": "Seine-et-Marne", "78": "Yvelines",
+    "79": "Deux-Sèvres", "80": "Somme", "81": "Tarn", "82": "Tarn-et-Garonne",
+    "83": "Var", "84": "Vaucluse", "85": "Vendée", "86": "Vienne",
+    "87": "Haute-Vienne", "88": "Vosges", "89": "Yonne", "90": "Territoire de Belfort",
+    "91": "Essonne", "92": "Hauts-de-Seine", "93": "Seine-Saint-Denis",
+    "94": "Val-de-Marne", "95": "Val-d'Oise",
+}
+
+
 @st.cache_data(show_spinner="Connexion à la base DuckDB et chargement des données…")
-def load_data():
+def load_data(dept_filter, _db_mtime):
+    """Charge les données depuis DuckDB, filtrées par département(s)."""
     if not os.path.exists(DB_PATH):
         st.error(f"Base de données introuvable : {DB_PATH}. Veuillez d'abord mettre à jour les départements.")
         st.stop()
-        
+
     con = duckdb.connect(DB_PATH, read_only=True)
-    
+
+    # Construire le filtre SQL pour les départements sélectionnés
+    placeholders = ", ".join([f"'{d}'" for d in dept_filter])
+    dept_where = f"SUBSTRING(CAST(code_insee AS VARCHAR), 1, 2) IN ({placeholders})"
+
     # 1. Transactions DVF
-    # On récupère les transactions géocodées. On renomme certaines colonnes 
-    # pour coller à l'ancien format de l'interface sans casser la vue.
-    df_dvf = con.execute("""
-        SELECT 
+    df_dvf = con.execute(f"""
+        SELECT
             prix AS valeur_fonciere,
             type_bien AS type_local,
             surface AS surface_m2,
@@ -311,12 +352,11 @@ def load_data():
             nom_commune
         FROM fait_transactions
         WHERE lat IS NOT NULL AND lon IS NOT NULL
-          AND lat BETWEEN 47.15 AND 47.32
-          AND lon BETWEEN -1.65 AND -1.45
           AND prix BETWEEN 20000 AND 5000000
           AND surface BETWEEN 10 AND 400
+          AND {dept_where}
     """).df()
-    
+
     # Pré-calculs DVF
     df_dvf["valeur_fmt"] = df_dvf["valeur_fonciere"].apply(
         lambda x: f"{x:,.0f} EUR".replace(",", " ") if pd.notna(x) else "N/A"
@@ -324,83 +364,109 @@ def load_data():
     df_dvf["prix_m2_fmt"] = df_dvf["prix_m2"].apply(
         lambda x: f"{x:,.0f} EUR/m2".replace(",", " ") if pd.notna(x) else "N/A"
     )
-    
+    df_dvf["price_label"] = df_dvf["valeur_fonciere"].apply(
+        lambda x: f"{x/1000:,.0f}k €".replace(",", " ") if pd.notna(x) and x >= 1000 else (
+            f"{x:,.0f} €".replace(",", " ") if pd.notna(x) else ""
+        )
+    )
+
     prix_m2_valid = df_dvf["prix_m2"].dropna()
-    seuil_bas = prix_m2_valid.quantile(0.33)
-    seuil_haut = prix_m2_valid.quantile(0.66)
+    if len(prix_m2_valid) > 0:
+        seuil_bas = float(prix_m2_valid.quantile(0.33))
+        seuil_haut = float(prix_m2_valid.quantile(0.66))
+    else:
+        seuil_bas, seuil_haut = 3000.0, 4500.0
+
     df_dvf["color_prix"] = df_dvf["prix_m2"].apply(
         lambda x: price_color(x, seuil_bas, seuil_haut)
     )
-    df_dvf.attrs["seuil_bas"] = seuil_bas
-    df_dvf.attrs["seuil_haut"] = seuil_haut
-
     df_dvf["color_type"] = df_dvf["type_local"].map({
         "Maison": [230, 126, 34, 200],
         "Appartement": [52, 152, 219, 200],
     })
 
-    df_dvf["building_polygon"] = [
-        _make_building_polygon(
-            row["lon"], row["lat"],
-            type_local=row.get("type_local", "Appartement"),
-            seed=i,
-        )
-        for i, row in df_dvf.iterrows()
-    ]
-    
+    # Génération des polygones de bâtiments (itertuples ~10x plus rapide qu'iterrows)
+    polygons = []
+    for row in df_dvf.itertuples():
+        polygons.append(_make_building_polygon(
+            row.lon, row.lat,
+            type_local=getattr(row, "type_local", "Appartement"),
+            seed=row.Index,
+        ))
+    df_dvf["building_polygon"] = polygons
+
     # 2. DPE (basé sur les transactions ayant un DPE connu)
-    df_dpe = df_dvf[df_dvf['dpe_classe'].notna()].copy()
+    df_dpe = df_dvf[df_dvf["dpe_classe"].notna()].copy()
     df_dpe = df_dpe.rename(columns={
         "dpe_classe": "etiquette_dpe",
         "ges_classe": "etiquette_ges",
         "surface_m2": "surface_habitable_logement",
-        "type_local": "type_batiment"
+        "type_local": "type_batiment",
     })
-    
     df_dpe["color_dpe"] = df_dpe["etiquette_dpe"].map(DPE_COLORS)
-    df_dpe["dpe_score"] = df_dpe["etiquette_dpe"].map({"A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2, "G": 1})
-    df_dpe["conso_5_usages_ep"] = 8 - df_dpe["dpe_score"] # Score synthétique pour la heatmap
+    df_dpe["dpe_score"] = df_dpe["etiquette_dpe"].map(
+        {"A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2, "G": 1}
+    )
+    df_dpe["conso_5_usages_ep"] = 8 - df_dpe["dpe_score"]
     df_dpe = df_dpe.dropna(subset=["color_dpe"])
-    
     df_dpe["surface_fmt"] = df_dpe["surface_habitable_logement"].apply(
         lambda x: f"{x:.0f} m2" if pd.notna(x) else "N/A"
     )
     df_dpe["conso_fmt"] = "N/A"
     df_dpe["adresse_fmt"] = df_dpe["nom_commune"].fillna("Adresse inconnue")
+    # Réutiliser les polygones de dvf au lieu de les recalculer
+    # (la colonne building_polygon existe déjà via le .copy())
 
-    df_dpe["building_polygon"] = [
-        _make_building_polygon(
-            row["lon"], row["lat"],
-            type_local=row.get("type_batiment", "Appartement"),
-            seed=i + 500_000,
-        )
-        for i, row in df_dpe.iterrows()
-    ]
-    
     # 3. Transports
-    df_transport = con.execute("""
+    df_transport = con.execute(f"""
         SELECT lat, lon, name, railway_type
         FROM dim_transport
         WHERE lat IS NOT NULL AND lon IS NOT NULL
-          AND lat BETWEEN 47.15 AND 47.32
-          AND lon BETWEEN -1.65 AND -1.45
     """).df()
-    
-    return df_dpe, df_dvf, df_transport
 
-# Chargement
-df_dpe, df_dvf, df_transport = load_data()
+    con.close()
+    return df_dpe, df_dvf, df_transport, seuil_bas, seuil_haut
+
+
+# ── Détection des départements disponibles dans la base ──
+if not os.path.exists(DB_PATH):
+    st.error("⚠️ Base de données introuvable. Rendez-vous dans 'Mise à jour des départements' pour la créer.")
+    st.stop()
+
+db_mtime = os.path.getmtime(DB_PATH)
+available_depts = get_available_depts(db_mtime)
 
 # ---------------------------------------------------------------------------
 # 3. BARRE LATÉRALE – FILTRES
 # ---------------------------------------------------------------------------
 st.sidebar.markdown("### ⚙️ Base de Données")
-if st.sidebar.button("Mise à jour des départements", use_container_width=True, type="primary"):
+if st.sidebar.button("Mise à jour des départements", width="stretch", type="primary"):
     st.switch_page("pages/selection_departements.py")
 st.sidebar.markdown("---")
 
+# ── Filtre Départements ──
+st.sidebar.markdown("### 🗺️ Départements")
+dept_labels = [f"{d} – {DEPT_NAMES.get(d, d)}" for d in available_depts]
+label_to_dept = {f"{d} – {DEPT_NAMES.get(d, d)}": d for d in available_depts}
+
+selected_dept_labels = st.sidebar.multiselect(
+    "Départements à afficher",
+    options=dept_labels,
+    default=dept_labels,  # Tous sélectionnés par défaut
+    label_visibility="collapsed",
+)
+selected_depts = tuple(sorted([label_to_dept[l] for l in selected_dept_labels]))
+
+if not selected_depts:
+    st.warning("Veuillez sélectionner au moins un département dans la barre latérale.")
+    st.stop()
+
+# ── Chargement des données pour les départements sélectionnés ──
+df_dpe, df_dvf, df_transport, seuil_bas, seuil_haut = load_data(selected_depts, db_mtime)
+
+st.sidebar.markdown("---")
 st.sidebar.title("Filtres d'Analyse")
-st.sidebar.markdown("Affinez votre exploration de la métropole nantaise.")
+st.sidebar.markdown("Affinez votre exploration des données immobilières.")
 
 st.sidebar.markdown("### Performance Energetique (DPE)")
 with st.sidebar.expander("Choisir les étiquettes DPE...", expanded=False):
@@ -408,7 +474,6 @@ with st.sidebar.expander("Choisir les étiquettes DPE...", expanded=False):
     dpe_options = ["A", "B", "C", "D", "E", "F", "G"]
     dpe_choix = []
     for opt in dpe_options:
-        # Par défaut, coche A à E si "Tout cocher" est décoché
         default_val = select_all_dpe or (opt in ["A", "B", "C", "D", "E"])
         checked = st.checkbox(f"DPE {opt}", value=default_val, key=f"dpe_opt_{opt}")
         if checked:
@@ -420,7 +485,7 @@ surf_min = col_surf1.number_input("Min :", min_value=10, max_value=400, value=20
 surf_max = col_surf2.number_input("Max :", min_value=10, max_value=400, value=200, step=5)
 
 st.sidebar.markdown("### Type de batiment")
-types_dispo = sorted(df_dpe["type_batiment"].dropna().unique().tolist())
+types_dispo = sorted(df_dpe["type_batiment"].dropna().unique().tolist()) if len(df_dpe) > 0 else ["Appartement", "Maison"]
 with st.sidebar.expander("Choisir les types...", expanded=False):
     select_all_types = st.checkbox("Tout cocher (Types)", value=True, key="types_all_cb")
     type_batiment_choix = []
@@ -448,7 +513,7 @@ st.sidebar.subheader("Style de carte")
 map_style_name = st.sidebar.selectbox(
     "Fond de carte :",
     options=["Sombre", "Clair", "Coloré"],
-    index=2,  # Par défaut "Coloré"
+    index=2,
 )
 MAP_STYLES = {
     "Sombre": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
@@ -471,11 +536,11 @@ df_dpe_f = df_dpe[
     df_dpe["etiquette_dpe"].isin(dpe_choix)
     & df_dpe["surface_habitable_logement"].between(surf_min, surf_max)
     & df_dpe["type_batiment"].isin(type_batiment_choix)
-].copy()
+]
 
 df_dvf_f = df_dvf[
     df_dvf["valeur_fonciere"].between(prix_min, prix_max)
-].copy()
+]
 
 # Limitation du nombre de points à afficher
 df_dvf_f = df_dvf_f.head(max_points)
@@ -583,7 +648,7 @@ with col_list:
 
 # === COLONNE DROITE : Carte avec marqueurs rouges ===
 with col_map:
-    # Recentrage dynamique sur le bien sélectionné si disponible
+    # Recentrage dynamique sur le bien sélectionné ou sur le centre des données
     if selected_row is not None:
         VIEW_STATE_SL = pdk.ViewState(
             latitude=selected_row["lat"],
@@ -593,17 +658,30 @@ with col_map:
             bearing=0
         )
     else:
+        # Centrage automatique sur les données filtrées
+        if len(df_dvf_f) > 0:
+            center_lat = df_dvf_f["lat"].mean()
+            center_lon = df_dvf_f["lon"].mean()
+            # Zoom adapté à l'étendue des données
+            lat_range = df_dvf_f["lat"].max() - df_dvf_f["lat"].min()
+            if lat_range < 0.05:
+                auto_zoom = 14
+            elif lat_range < 0.2:
+                auto_zoom = 12
+            elif lat_range < 1.0:
+                auto_zoom = 10
+            elif lat_range < 3.0:
+                auto_zoom = 8
+            else:
+                auto_zoom = 6
+        else:
+            center_lat, center_lon, auto_zoom = 47.2184, -1.5536, 12
         VIEW_STATE_SL = pdk.ViewState(
-            latitude=47.2184, longitude=-1.5536, zoom=12, pitch=0, bearing=0
+            latitude=center_lat, longitude=center_lon, zoom=auto_zoom, pitch=0, bearing=0
         )
 
-    # Préparer les labels de prix pour les marqueurs
-    df_map = df_dvf_f.copy()
-    df_map["price_label"] = df_map["valeur_fonciere"].apply(
-        lambda x: f"{x/1000:,.0f}k €".replace(",", " ") if pd.notna(x) and x >= 1000 else (
-            f"{x:,.0f} €".replace(",", " ") if pd.notna(x) else ""
-        )
-    )
+    # Les labels de prix sont déjà pré-calculés dans load_data()
+    df_map = df_dvf_f
 
     # Halo de surbrillance pour le point sélectionné (gros cercle doré brillant en arrière-plan)
     layer_selected = pdk.Layer(
@@ -688,22 +766,22 @@ with col_map:
     }
 
     # Légende explicative des prix (texte en noir et police Inter)
-    seuil_bas = df_dvf.attrs.get("seuil_bas", 3000)
-    seuil_haut = df_dvf.attrs.get("seuil_haut", 4500)
+    seuil_bas_val = seuil_bas
+    seuil_haut_val = seuil_haut
     st.markdown(
         f"""
         <div style='display: flex; gap: 20px; justify-content: center; font-size: 13px; font-weight: 700; margin-bottom: 12px; font-family: "Inter", "Segoe UI", sans-serif; color: #000000;'>
             <div style='display: flex; align-items: center; gap: 6px;'>
                 <span style='display: inline-block; width: 12px; height: 12px; background: rgb(140, 140, 140); border-radius: 50%; border: 1px solid rgba(0,0,0,0.15);'></span>
-                <span style='color: #000000;'>Peu cher (&lt; {seuil_bas:,.0f} €/m²)</span>
+                <span style='color: #000000;'>Peu cher (&lt; {seuil_bas_val:,.0f} €/m²)</span>
             </div>
             <div style='display: flex; align-items: center; gap: 6px;'>
                 <span style='display: inline-block; width: 12px; height: 12px; background: rgb(230, 190, 10); border-radius: 50%; border: 1px solid rgba(0,0,0,0.15);'></span>
-                <span style='color: #000000;'>Moyen ({seuil_bas:,.0f} - {seuil_haut:,.0f} €/m²)</span>
+                <span style='color: #000000;'>Moyen ({seuil_bas_val:,.0f} - {seuil_haut_val:,.0f} €/m²)</span>
             </div>
             <div style='display: flex; align-items: center; gap: 6px;'>
                 <span style='display: inline-block; width: 12px; height: 12px; background: rgb(220, 53, 69); border-radius: 50%; border: 1px solid rgba(0,0,0,0.15);'></span>
-                <span style='color: #000000;'>Cher (&gt; {seuil_haut:,.0f} €/m²)</span>
+                <span style='color: #000000;'>Cher (&gt; {seuil_haut_val:,.0f} €/m²)</span>
             </div>
         </div>
         """.replace(",", " "),
@@ -739,7 +817,10 @@ st.divider()
 st.subheader("Analyse Énergétique (DPE)")
 
 VIEW_STATE_2D = pdk.ViewState(
-    latitude=47.2184, longitude=-1.5536, zoom=12.5, pitch=0, bearing=0
+    latitude=center_lat if len(df_dvf_f) > 0 else 47.2184,
+    longitude=center_lon if len(df_dvf_f) > 0 else -1.5536,
+    zoom=auto_zoom if len(df_dvf_f) > 0 else 12.5,
+    pitch=0, bearing=0
 )
 
 # Tooltip DPE
@@ -788,7 +869,7 @@ if nb_dpe > 0:
                 f"background:{color};border-radius:3px;margin-right:5px;'></span>DPE {label}",
                 unsafe_allow_html=True,
             )
-        df_hm = df_dpe_f.dropna(subset=["dpe_score"]).copy()
+        df_hm = df_dpe_f.dropna(subset=["dpe_score"])
         layer_zones_dpe = pdk.Layer(
             "HeatmapLayer", data=df_hm,
             get_position="[lon, lat]", get_weight="dpe_score",
@@ -813,7 +894,7 @@ if nb_dpe > 0:
     with tab_dpe_perf:
         st.markdown("##### Répartition géographique des performances énergétiques")
         if nb_dpe > 0:
-            df_hm = df_dpe_f.dropna(subset=["conso_5_usages_ep"]).copy()
+            df_hm = df_dpe_f.dropna(subset=["conso_5_usages_ep"])
             layer_conso = pdk.Layer(
                 "HeatmapLayer", data=df_hm,
                 get_position="[lon, lat]", get_weight="conso_5_usages_ep",
@@ -837,7 +918,7 @@ if nb_dpe > 0:
 
     with tab_dpe_heat:
         st.markdown("##### Carte de chaleur – Consommation energetique (kWh/m²/an)")
-        df_heat = df_dpe_f.dropna(subset=["conso_5_usages_ep"]).copy()
+        df_heat = df_dpe_f.dropna(subset=["conso_5_usages_ep"])
         if len(df_heat) > 0:
             layer_densite = pdk.Layer(
                 "HeatmapLayer", data=df_heat,
