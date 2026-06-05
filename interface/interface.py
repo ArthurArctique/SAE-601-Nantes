@@ -199,7 +199,7 @@ def load_city_data(dept, city, _mtime):
             prix AS valeur_fonciere, type_bien AS type_local,
             surface AS surface_m2, pieces AS nb_pieces,
             lat, lon, prix_m2,
-            dpe_classe, ges_classe, date_mutation, nom_commune
+            dpe_classe, ges_classe, date_mutation, nom_commune, adresse_normalisee
         FROM fait_transactions
         WHERE SUBSTRING(CAST(code_insee AS VARCHAR),1,2) = '{dept}'
           AND nom_commune = '{city.replace("'", "''")}'
@@ -354,7 +354,7 @@ st.markdown(f"""
 # ---------------------------------------------------------------------------
 # 8. ONGLETS PRINCIPAUX
 # ---------------------------------------------------------------------------
-tab_map, tab_dpe, tab_stats, tab_data = st.tabs(["🗺️ Carte des Transactions", "📊 Analyse DPE", "📈 Statistiques", "📋 Données"])
+tab_map, tab_dpe, tab_stats, tab_data, tab_analyse = st.tabs(["🗺️ Carte des Transactions", "📊 Analyse DPE", "📈 Statistiques", "📋 Données", "🔍 Analyse & Estimation"])
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TAB 1 : CARTE DES TRANSACTIONS
@@ -626,3 +626,125 @@ with tab_data:
             )
         else:
             st.info("Aucun diagnostic DPE disponible.")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TAB 5 : ANALYSE & ESTIMATION
+# ═══════════════════════════════════════════════════════════════════════════
+with tab_analyse:
+    st.markdown("### Évalue ton bien immobilier")
+    
+    col_form, col_res = st.columns([1, 2], gap="large")
+    
+    with col_form:
+        st.markdown("<div class='chart-card' style='margin-bottom:0;'>", unsafe_allow_html=True)
+        st.markdown("<p class='chart-title'>Caractéristiques du bien</p>", unsafe_allow_html=True)
+        st.markdown("<p class='chart-subtitle'>Remplis les informations pour comparer ton estimation au marché local.</p><br>", unsafe_allow_html=True)
+        
+        sim_prix = st.number_input("Prix de vente estimé (€)*", min_value=10000, max_value=10000000, value=250000, step=10000)
+        sim_type = st.selectbox("Type de bien", ["Appartement", "Maison", "Indifférent"], index=0)
+        
+        col_f1, col_f2 = st.columns(2)
+        sim_surf = col_f1.number_input("Surface (m²)", min_value=10, max_value=500, value=60)
+        sim_surf_tol = col_f2.number_input("Tolérance surface (± %)", min_value=0, max_value=50, value=15)
+        
+        col_f3, col_f4 = st.columns(2)
+        sim_pieces = col_f3.number_input("Nb pièces", min_value=1, max_value=20, value=3)
+        sim_pieces_tol = col_f4.number_input("Tolérance pièces (±)", min_value=0, max_value=5, value=1)
+        
+        sim_mot_cle = st.text_input("Mot-clé adresse (Optionnel, ex: Zola, Doulon)", "")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+    with col_res:
+        # Filtrage
+        df_sim = df_dvf.copy()
+        
+        if sim_type != "Indifférent":
+            df_sim = df_sim[df_sim["type_local"] == sim_type]
+            
+        surf_min_sim = sim_surf * (1 - sim_surf_tol / 100.0)
+        surf_max_sim = sim_surf * (1 + sim_surf_tol / 100.0)
+        df_sim = df_sim[df_sim["surface_m2"].between(surf_min_sim, surf_max_sim)]
+        
+        pieces_min = sim_pieces - sim_pieces_tol
+        pieces_max = sim_pieces + sim_pieces_tol
+        df_sim = df_sim[df_sim["nb_pieces"].between(pieces_min, pieces_max)]
+        
+        if sim_mot_cle.strip():
+            df_sim = df_sim[df_sim["adresse_normalisee"].str.contains(sim_mot_cle, case=False, na=False)]
+        
+        nb_sim = len(df_sim)
+        
+        if nb_sim < 5:
+            st.warning(f"⚠️ **Échantillon trop faible ({nb_sim} ventes).** Élargis tes critères de recherche (tolérance de surface, pièces, ou retire le mot-clé) pour obtenir une estimation fiable.")
+        else:
+            med_sim_pm2 = df_sim["prix_m2"].median()
+            min_sim_pm2 = df_sim["prix_m2"].min()
+            max_sim_pm2 = df_sim["prix_m2"].quantile(0.95) # Exclure les vrais extrêmes pour la jauge
+            
+            sim_pm2 = sim_prix / sim_surf if sim_surf > 0 else 0
+            
+            diff_pct = ((sim_pm2 - med_sim_pm2) / med_sim_pm2) * 100 if med_sim_pm2 > 0 else 0
+            
+            if diff_pct > 5:
+                status_color = "#e74c3c" # Rouge (trop cher)
+                status_text = f"Ton estimation est **{diff_pct:.1f}% plus élevée** que la médiane du marché ({med_sim_pm2:,.0f} €/m²) pour des biens similaires."
+            elif diff_pct < -5:
+                status_color = "#2ecc71" # Vert (bonne affaire)
+                status_text = f"Ton estimation est **{abs(diff_pct):.1f}% moins élevée** que la médiane du marché ({med_sim_pm2:,.0f} €/m²) pour des biens similaires."
+            else:
+                status_color = "#f1c40f" # Jaune (dans la norme)
+                status_text = f"Ton estimation est **parfaitement alignée** avec la médiane du marché ({med_sim_pm2:,.0f} €/m²) pour des biens similaires."
+            
+            st.markdown(f"""
+            <div class='chart-card' style='border-left-color: {status_color};'>
+                <p class='chart-title' style='color: {status_color};'>Résultat de l'analyse</p>
+                <p class='chart-subtitle'>{status_text}</p>
+                <p style='font-size: 13px; color: #64748b; margin-top: 5px;'>Basé sur <b>{nb_sim}</b> transactions historiques correspondant à tes critères.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Gauge chart Plotly
+            fig_gauge = go.Figure(go.Indicator(
+                mode = "gauge+number+delta",
+                value = sim_pm2,
+                title = {'text': "Prix au m² simulé (€/m²)", 'font': {'size': 14, 'color': '#1e293b'}},
+                delta = {'reference': med_sim_pm2, 'increasing': {'color': "#e74c3c"}, 'decreasing': {'color': "#2ecc71"}},
+                gauge = {
+                    'axis': {'range': [max(0, min_sim_pm2 - 500), max_sim_pm2 + 1000], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                    'bar': {'color': status_color},
+                    'bgcolor': "white",
+                    'borderwidth': 2,
+                    'bordercolor': "gray",
+                    'steps': [
+                        {'range': [0, med_sim_pm2 * 0.95], 'color': "rgba(46, 204, 113, 0.2)"},
+                        {'range': [med_sim_pm2 * 0.95, med_sim_pm2 * 1.05], 'color': "rgba(241, 196, 15, 0.2)"},
+                        {'range': [med_sim_pm2 * 1.05, max_sim_pm2 + 1000], 'color': "rgba(231, 76, 60, 0.2)"}],
+                    'threshold': {
+                        'line': {'color': "black", 'width': 3},
+                        'thickness': 0.75,
+                        'value': med_sim_pm2}
+                }
+            ))
+            
+            fig_gauge.update_layout(height=280, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig_gauge, width="stretch")
+            
+            with st.expander("🗺️ Voir les biens similaires sur la carte"):
+                # Carte pydeck des biens similaires
+                c_lat_sim = df_sim["lat"].mean()
+                c_lon_sim = df_sim["lon"].mean()
+                VS_SIM = pdk.ViewState(latitude=c_lat_sim, longitude=c_lon_sim, zoom=13, pitch=0)
+                
+                layer_sim = pdk.Layer(
+                    "ScatterplotLayer", data=df_sim, get_position="[lon, lat]",
+                    get_radius=50, radius_min_pixels=5, radius_max_pixels=15,
+                    get_fill_color=[52, 152, 219, 200], get_line_color=[255,255,255,200],
+                    line_width_min_pixels=1, pickable=True, auto_highlight=True,
+                )
+                
+                st.pydeck_chart(pdk.Deck(
+                    map_style=map_style, initial_view_state=VS_SIM,
+                    layers=[layer_sim],
+                    tooltip={"text": "{adresse_normalisee}\n{valeur_fmt} | {surface_m2} m² | {prix_m2_fmt}"}
+                ), width="stretch")
