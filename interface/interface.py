@@ -215,9 +215,13 @@ def load_city_data(dept, city, _mtime):
     con = duckdb.connect(DB_PATH, read_only=True)
     df = con.execute(f"SELECT prix AS valeur_fonciere, type_bien AS type_local, surface AS surface_m2, pieces AS nb_pieces, lat, lon, prix_m2, dpe_classe, ges_classe, date_mutation, nom_commune, adresse_normalisee FROM fait_transactions WHERE SUBSTRING(CAST(code_insee AS VARCHAR),1,2) = '{dept}' AND nom_commune = '{city.replace(chr(39), chr(39)*2)}' AND lat IS NOT NULL AND lon IS NOT NULL AND prix BETWEEN 20000 AND 5000000 AND surface BETWEEN 10 AND 400").df()
     transport = con.execute("SELECT lat, lon, name, railway_type FROM dim_transport WHERE lat IS NOT NULL AND lon IS NOT NULL").df()
+    try:
+        ecoles = con.execute("SELECT lat, lon, name, type FROM dim_ecoles WHERE lat IS NOT NULL AND lon IS NOT NULL").df()
+    except Exception:
+        ecoles = pd.DataFrame(columns=["lat", "lon", "name", "type"])
     con.close()
 
-    if len(df) == 0: return df, pd.DataFrame(), transport, 3000.0, 4500.0
+    if len(df) == 0: return df, pd.DataFrame(), transport, ecoles, 3000.0, 4500.0
 
     df["valeur_fmt"] = df["valeur_fonciere"].apply(lambda x: f"{x:,.0f} €".replace(",", " ") if pd.notna(x) else "N/A")
     df["prix_m2_fmt"] = df["prix_m2"].apply(lambda x: f"{x:,.0f} €/m²".replace(",", " ") if pd.notna(x) else "N/A")
@@ -242,7 +246,7 @@ def load_city_data(dept, city, _mtime):
     dpe["surface_fmt"] = dpe["surface_habitable_logement"].apply(lambda x: f"{x:.0f} m²" if pd.notna(x) else "N/A")
     dpe["adresse_fmt"] = city
 
-    return df, dpe, transport, seuil_bas, seuil_haut
+    return df, dpe, transport, ecoles, seuil_bas, seuil_haut
 
 # ---------------------------------------------------------------------------
 # 5. SIDEBAR
@@ -267,7 +271,7 @@ selected_city = st.sidebar.selectbox("Commune", cities, index=default_city_idx) 
 
 if not selected_city: st.warning("Aucune commune"); st.stop()
 
-df_dvf, df_dpe, df_transport, seuil_bas, seuil_haut = load_city_data(selected_dept, selected_city, db_mtime)
+df_dvf, df_dpe, df_transport, df_ecoles, seuil_bas, seuil_haut = load_city_data(selected_dept, selected_city, db_mtime)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔍 Filtres")
@@ -597,16 +601,35 @@ with tab_analyse:
                     
                     st.markdown(f"<div style='background: {bg_eco}; border-left: 5px solid {c_eco}; border-radius: 8px; padding: 12px; font-family: \"Inter\", sans-serif;'><div style='font-size: 13px; font-weight: 800; color: {c_eco}; margin-bottom: 6px;'>{v_eco.upper()}</div><div style='font-size: 12px; color: {_TEXT_PRIMARY}; margin-bottom: 10px;'>{d_eco}</div></div>", unsafe_allow_html=True)
                     
-                    st.markdown("#### Réseau Ferré à Proximité (< 1km)")
+                    st.markdown("#### Stations de Transport à Proximité (< 1km)")
                     if not df_trans_local.empty:
-                        trans_html = "<div style='display: flex; flex-direction: column; gap: 8px;'>"
+                        df_trans_local = df_trans_local.head(5)
+                        trans_html = "<div style='display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px;'>"
                         for _, station in df_trans_local.iterrows():
                             badge_bg = "#3498db" if "tram" in str(station['railway_type']).lower() else "#9b59b6"
                             trans_html += f"<div style='background: {_BG_CARD}; border: 1px solid {_BORDER_CARD}; border-left: 5px solid {badge_bg}; border-radius: 8px; padding: 8px 12px; display: flex; align-items: center;'><div style='flex: 1;'><div style='font-weight: 800; font-size: 12px; color: {_TEXT_PRIMARY};'>{station['name']}</div><div style='font-size: 10px; color: {_TEXT_SECONDARY};'>{station['railway_type'].upper()} · à {station['dist_m']:.0f} mètres</div></div></div>"
                         trans_html += "</div>"
                         st.markdown(trans_html, unsafe_allow_html=True)
                     else:
-                        st.info("Aucune station de tram/train à moins d'1 km.")
+                        st.info("Aucune station de transport à moins d'1 km.")
+
+                    st.markdown("#### Écoles à Proximité (< 1km)")
+                    if not df_ecoles.empty:
+                        df_ecoles_local = df_ecoles.copy()
+                        df_ecoles_local["dist_m"] = np.sqrt(((df_ecoles_local["lat"] - lat)*111.32)**2 + ((df_ecoles_local["lon"] - lon)*80.0)**2) * 1000.0
+                        df_ecoles_local = df_ecoles_local[df_ecoles_local["dist_m"] <= 1000.0].sort_values("dist_m").drop_duplicates(subset=["name"]).head(5)
+                        
+                        if not df_ecoles_local.empty:
+                            eco_html = "<div style='display: flex; flex-direction: column; gap: 8px;'>"
+                            for _, ecole in df_ecoles_local.iterrows():
+                                type_eco = str(ecole['type']).upper() if pd.notna(ecole['type']) else "ÉCOLE"
+                                eco_html += f"<div style='background: {_BG_CARD}; border: 1px solid {_BORDER_CARD}; border-left: 5px solid #2ecc71; border-radius: 8px; padding: 8px 12px; display: flex; align-items: center;'><div style='flex: 1;'><div style='font-weight: 800; font-size: 12px; color: {_TEXT_PRIMARY};'>{ecole['name']}</div><div style='font-size: 10px; color: {_TEXT_SECONDARY};'>{type_eco} · à {ecole['dist_m']:.0f} mètres</div></div></div>"
+                            eco_html += "</div>"
+                            st.markdown(eco_html, unsafe_allow_html=True)
+                        else:
+                            st.info("Aucune école à moins d'1 km.")
+                    else:
+                        st.info("Les données des écoles ne sont pas extraites pour cette base.")
 
             # --- ONGLET 3 : CARTE ET VENTES PROCHES ---
             with st_sub3:
