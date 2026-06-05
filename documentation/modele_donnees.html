@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modèle Conceptuel de Données — SAE-601 Nantes</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            securityLevel: 'loose',
+            themeVariables: {
+                fontFamily: 'Inter, system-ui, sans-serif',
+                primaryColor: '#f1f5f9',
+                primaryTextColor: '#1e293b',
+                lineColor: '#94a3b8',
+                secondaryColor: '#f8fafc',
+                tertiaryColor: '#ffffff'
+            }
+        });
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background-color: #f8fafc;
+            color: #1e293b;
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            max-width: 1100px;
+            width: 100%;
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
+            border: 1px solid #e2e8f0;
+        }
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin-top: 0;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #f1f5f9;
+            padding-bottom: 15px;
+        }
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin-top: 40px;
+            margin-bottom: 20px;
+            border-left: 4px solid #d4af37;
+            padding-left: 12px;
+        }
+        p {
+            font-size: 1rem;
+            line-height: 1.6;
+            color: #475569;
+        }
+        .diagram-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 30px;
+            overflow-x: auto;
+            display: flex;
+            justify-content: center;
+        }
+        .mermaid {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            margin-bottom: 30px;
+        }
+        th, td {
+            text-align: left;
+            padding: 12px 16px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        th {
+            background-color: #f1f5f9;
+            color: #1e293b;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        td {
+            font-size: 0.95rem;
+            color: #334155;
+        }
+        tr:hover {
+            background-color: #f8fafc;
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            background: #d4af37;
+            color: #000000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗺️ Modèle Conceptuel & Logique de Données</h1>
+        <p>Ce document présente la structure physique et relationnelle de la base de données <strong>sae601_nantes.duckdb</strong> sous forme de schéma en étoile et de flux de vues relationnelles.</p>
+
+        <h2>1. Schéma en Étoile</h2>
+        <div class="diagram-card">
+            <pre class="mermaid">
+erDiagram
+    DIM_COMMUNES {
+        VARCHAR code_commune PK
+        VARCHAR nom
+        TEXT geometrie_json
+    }
+
+    DIM_BAN {
+        VARCHAR id_ban PK
+        INTEGER numero
+        VARCHAR rep
+        VARCHAR nom_voie
+        VARCHAR code_postal
+        VARCHAR code_insee FK
+        VARCHAR nom_commune
+        DOUBLE lon
+        DOUBLE lat
+    }
+
+    DIM_DPE {
+        VARCHAR numero_dpe PK
+        VARCHAR etiquette_dpe
+        VARCHAR etiquette_ges
+        VARCHAR type_batiment
+        INTEGER annee_construction
+        DECIMAL surface_habitable_logement
+        DECIMAL conso_5_usages_par_m2_ep
+        DECIMAL emission_ges_par_m2
+        VARCHAR code_insee_ban FK
+        VARCHAR nom_commune_ban
+        VARCHAR code_postal_ban
+        DECIMAL x_ban
+        DECIMAL y_ban
+    }
+
+    FAIT_TRANSACTIONS {
+        VARCHAR id_mutation PK
+        DATE date_mutation
+        VARCHAR nature_mutation
+        DECIMAL prix
+        VARCHAR type_bien
+        DECIMAL surface
+        INTEGER pieces
+        DECIMAL prix_m2
+        VARCHAR adresse_normalisee
+        VARCHAR code_postal
+        VARCHAR nom_commune
+        VARCHAR code_insee FK
+        DOUBLE lat
+        DOUBLE lon
+        VARCHAR dpe_classe
+        VARCHAR ges_classe
+        INTEGER annee_construction
+        DECIMAL insee_mediane_revenu
+        DECIMAL distance_ecole_m
+        VARCHAR nom_ecole_proche
+        DECIMAL distance_transport_m
+        VARCHAR nom_transport_proche
+        VARCHAR exposition_aeroport_peb
+    }
+
+    DIM_ECOLES {
+        BIGINT osm_id PK
+        VARCHAR type
+        DOUBLE lat
+        DOUBLE lon
+        VARCHAR name
+        VARCHAR city
+        VARCHAR postcode
+        VARCHAR amenity
+    }
+
+    DIM_TRANSPORT {
+        BIGINT osm_id PK
+        DOUBLE lat
+        DOUBLE lon
+        VARCHAR name
+        VARCHAR railway_type
+        VARCHAR operator
+        VARCHAR network
+        VARCHAR uic_ref
+    }
+
+    DIM_PEB {
+        INTEGER gid PK
+        VARCHAR categorie
+        VARCHAR nomsup
+        TEXT descriptio
+        TEXT geometrie_json
+    }
+
+    DIM_INSEE {
+        VARCHAR CODGEO PK
+        INTEGER NBMEN21
+        INTEGER NBPERS21
+        DECIMAL NBUC21
+        DECIMAL Q121
+        DECIMAL Q221
+        DECIMAL Q321
+        DECIMAL GI21
+        DECIMAL PACT21
+        DECIMAL PTSA21
+        DECIMAL PCHO21
+        DECIMAL PBEN21
+        DECIMAL PPEN21
+        DECIMAL PAUT21
+        DECIMAL PMIMP21
+        DECIMAL PIMPOT21
+    }
+
+    DIM_COMMUNES ||--o{ DIM_BAN : "code_commune = code_insee"
+    DIM_COMMUNES ||--o{ FAIT_TRANSACTIONS : "code_commune = code_insee"
+    DIM_COMMUNES ||--o{ DIM_DPE : "code_commune = code_insee_ban"
+    DIM_COMMUNES ||--|| DIM_INSEE : "code_commune = CODGEO"
+    DIM_BAN }o--o| FAIT_TRANSACTIONS : "geocodage adresse"
+    FAIT_TRANSACTIONS }o--o| DIM_ECOLES : "proximite spatiale"
+    FAIT_TRANSACTIONS }o--o| DIM_TRANSPORT : "proximite spatiale"
+    FAIT_TRANSACTIONS }o--o| DIM_PEB : "intersection spatiale"
+            </pre>
+        </div>
+
+        <h2>2. Vues Relationnelles</h2>
+        <div class="diagram-card">
+            <pre class="mermaid">
+flowchart LR
+    subgraph Dimensions
+        B[dim_ban]
+        C[dim_communes]
+        I[dim_insee]
+        D[dim_dpe]
+    end
+
+    subgraph Faits
+        FT[fait_transactions]
+    end
+
+    subgraph Vues
+        V1[vue_dvf_complet]
+        V2[vue_stats_commune]
+        V3[vue_dpe_commune]
+        V4[vue_proximites]
+    end
+
+    FT --> V1
+    C --> V1
+    I --> V1
+
+    C --> V2
+    FT --> V2
+    I --> V2
+
+    D --> V3
+
+    FT --> V4
+            </pre>
+        </div>
+
+        <h2>3. Description des Vues</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Vue</th>
+                    <th>Description</th>
+                    <th>Jointures / Relations</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>vue_dvf_complet</code></td>
+                    <td>Chaque transaction enrichie du nom commune officiel et des indicateurs INSEE (revenu médian, Gini, parts de revenus)</td>
+                    <td><code>fait_transactions</code> &larr; <code>dim_communes</code> &larr; <code>dim_insee</code></td>
+                </tr>
+                <tr>
+                    <td><code>vue_stats_commune</code></td>
+                    <td>Statistiques agrégées par commune : prix moyen/médian, surface moyenne, répartition DPE A-B vs F-G</td>
+                    <td><code>dim_communes</code> &larr; <code>fait_transactions</code> &larr; <code>dim_insee</code></td>
+                </tr>
+                <tr>
+                    <td><code>vue_dpe_commune</code></td>
+                    <td>Répartition des étiquettes DPE par commune avec consommation moyenne au m²</td>
+                    <td><code>dim_dpe</code> groupé par commune</td>
+                </tr>
+                <tr>
+                    <td><code>vue_proximites</code></td>
+                    <td>Distances aux écoles, transports et exposition PEB pour chaque transaction géocodée</td>
+                    <td><code>fait_transactions</code> filtré sur <code>lat IS NOT NULL</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
