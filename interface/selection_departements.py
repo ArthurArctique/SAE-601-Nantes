@@ -329,8 +329,15 @@ with col_controls:
             details_text.empty()
             st.success("Toutes les données ont été actualisées et intégrées à la base DuckDB.")
             st.balloons()
-            if st.button("Fermer", type="primary"):
-                st.rerun()
+            
+            st.write("") # Espacement
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Fermer", type="secondary", width="stretch"):
+                    st.rerun()
+            with col2:
+                if st.button("🏠 Accéder à l'Observatoire", type="primary", width="stretch"):
+                    st.switch_page("interface/interface.py")
         else:
             progress_bar.progress(100)
             status_text.markdown("**❌ Erreur lors de la mise à jour.**")

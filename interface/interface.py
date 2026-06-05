@@ -511,6 +511,11 @@ df_transport = load_transport()
 # ---------------------------------------------------------------------------
 # 3. BARRE LATÉRALE – FILTRES
 # ---------------------------------------------------------------------------
+st.sidebar.markdown("### ⚙️ Base de Données")
+if st.sidebar.button("Mise à jour des départements", use_container_width=True, type="primary"):
+    st.switch_page("interface/selection_departements.py")
+st.sidebar.markdown("---")
+
 st.sidebar.title("Filtres d'Analyse")
 st.sidebar.markdown("Affinez votre exploration de la métropole nantaise.")
 
