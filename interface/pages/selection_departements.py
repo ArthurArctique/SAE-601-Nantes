@@ -4,7 +4,8 @@ import os
 
 # Déclaration du composant personnalisé de carte
 parent_dir = os.path.dirname(os.path.abspath(__file__))
-build_dir = os.path.join(parent_dir, "dept_map_component")
+interface_dir = os.path.dirname(parent_dir)
+build_dir = os.path.join(interface_dir, "dept_map_component")
 _dept_map_component = components.declare_component("dept_map", path=build_dir)
 
 def dept_map(selected, map_height=550, key=None):
