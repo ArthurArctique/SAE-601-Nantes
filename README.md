@@ -2,14 +2,38 @@
 
 ## Mise en place de l'environnement
 
-Ouvrir un terminal et lancer la commande suivante :
+1. **Ouvrir un terminal** à la racine du projet et créer l'environnement virtuel :
 ```bash
 python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
 ```
 
-Utiliser de préférence la version de python indiqué dans le fichier .python-version
+2. **Activer l'environnement virtuel** :
+- Sur **Windows** (PowerShell) :
+  ```powershell
+  .venv\Scripts\Activate.ps1
+  ```
+- Sur **Windows** (Invite de commandes / CMD) :
+  ```cmd
+  .venv\Scripts\activate.bat
+  ```
+- Sur **macOS/Linux** :
+  ```bash
+  source .venv/bin/activate
+  ```
+
+3. **Installer les dépendances** :
+```bash
+pip install -r requirements.txt
+```
+*(Utiliser de préférence la version de Python indiquée dans le fichier `.python-version`)*
+
+## Lancer l'application
+
+Une fois l'environnement activé et les dépendances installées, lancez l'application Streamlit avec la commande suivante :
+```bash
+streamlit run interface/interface.py
+```
+Cela ouvrira automatiquement l'Observatoire Immobilier dans votre navigateur Web.
 
 ##  Objectif
 Développer un outil décisionnel permettant de répondre à la question :
