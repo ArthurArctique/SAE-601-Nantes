@@ -228,58 +228,122 @@ if __name__ == '__main__':
     import threading
 
     dpe_cols = ['numero_dpe', 'etiquette_dpe', 'etiquette_ges', 'annee_construction', 'date_reception_dpe', 'numero_voie_ban', 'nom_rue_ban', 'nom_commune_ban', 'code_insee_ban', 'conso_5_usages_par_m2_ep']
-    with open("data/dpe/dpe-multidept.csv", 'w', encoding='utf-8', newline='') as f:
-        w = csv.writer(f)
-        w.writerow(dpe_cols)
-        csv_lock = threading.Lock()
-        
-        # Load unique INSEE codes from DVF to avoid 999 requests per department
+    csv_path = "data/dpe/dpe-multidept.csv"
+    
+    def get_api_total(dept):
+        url = f"https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/lines?size=1&q_mode=simple&qs=code_departement_ban:{dept}&format=json"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        for attempt in range(5):
+            try:
+                with urllib.request.urlopen(req, timeout=20) as res:
+                    data = json.loads(res.read())
+                    return data.get('total', 0)
+            except Exception as e:
+                print(f"\n[API Warning] Impossible de récupérer le total pour le {dept} (essai {attempt+1}/5) : {e}")
+                time.sleep(3)
+        return -1
+
+    def clean_dept_from_csv(csv_file, dept_to_remove):
+        print(f"  -> Nettoyage des données partielles existantes pour le département {dept_to_remove}...")
+        temp_path = csv_file + ".tmp"
         try:
-            df_dvf = pd.read_csv("data/dvf/dvf-2025-multidept.csv", usecols=['Code commune'], dtype=str, sep=';')
-            df_dvf['code_insee'] = df_dvf['Code commune'].str.split('.').str[0].str.zfill(5)
-            all_insee_codes = df_dvf['code_insee'].dropna().unique().tolist()
-        except Exception:
-            all_insee_codes = []
-
-        for dept in DEPARTEMENTS:
-            print(f"Téléchargement DPE (Multithreadé) pour le département {dept}...")
-            total_extracted = 0
-            
-            # Générer la liste des codes INSEE réels
-            if all_insee_codes:
-                insee_codes = [c for c in all_insee_codes if c.startswith(dept)]
-            else:
-                insee_codes = [f"{dept}{str(i).zfill(3)}" for i in range(1, 1000)]
-            
-            def fetch_dpe_for_insee(code_insee):
-                global total_extracted
-                url = f"https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/lines?size=10000&q_mode=simple&qs=code_insee_ban:{code_insee}&format=json"
-                local_count = 0
-                while url:
-                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                    try:
-                        with urllib.request.urlopen(req) as res:
-                            data = json.loads(res.read())
-                            results = data.get('results', [])
-                            if results:
-                                with csv_lock:
-                                    for row in results:
-                                        w.writerow([row.get(c, '') for c in dpe_cols])
-                                    total_extracted += len(results)
-                            
-                            local_count += len(results)
-                            url = data.get('next')
-                    except Exception as e:
-                        # Si 404 ou 403, on ignore silencieusement
-                        break
+            with open(csv_file, 'r', encoding='utf-8') as f_in, \
+                 open(temp_path, 'w', encoding='utf-8', newline='') as f_out:
+                reader = csv.reader(f_in)
+                writer = csv.writer(f_out)
                 
-                if local_count > 0:
-                    print(f"  -> {code_insee} OK ({local_count} DPE). Cumul dépt: {total_extracted}", end="\r", flush=True)
+                header = next(reader, None)
+                if header:
+                    writer.writerow(header)
+                    insee_idx = -1
+                    for idx, col in enumerate(dpe_cols):
+                        if col == 'code_insee_ban':
+                            insee_idx = idx
+                            break
+                    if insee_idx != -1:
+                        for row in reader:
+                            if len(row) > insee_idx:
+                                insee = row[insee_idx]
+                                if insee and insee[:2] == dept_to_remove:
+                                    continue
+                            writer.writerow(row)
+            os.replace(temp_path, csv_file)
+            print(f"  -> Nettoyage terminé avec succès.")
+        except Exception as e:
+            print(f"  -> [Erreur] Impossible de nettoyer le département {dept_to_remove} : {e}")
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
-            # Lancement de 30 threads en parallèle pour siphonner l'API à très grande vitesse
-            with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
-                executor.map(fetch_dpe_for_insee, insee_codes)
+    dept_counts = {d: 0 for d in DEPARTEMENTS}
+    file_exists = os.path.exists(csv_path) and os.path.getsize(csv_path) > 0
+    
+    if file_exists:
+        print(f"Analyse du fichier existant {csv_path}...")
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    insee = row.get('code_insee_ban')
+                    if insee and len(insee) >= 2:
+                        dept = insee[:2]
+                        if dept in dept_counts:
+                            dept_counts[dept] += 1
+            print(f"Départements DPE déjà présents dans le fichier : {sorted(list(existing_depts)) if 'existing_depts' in locals() else [k for k, v in dept_counts.items() if v > 0]}")
+        except Exception as e:
+            print(f"Erreur de lecture du fichier DPE : {e}")
+            file_exists = False
+            
+    select_cols = ",".join(dpe_cols)
+    for dept in DEPARTEMENTS:
+        count_csv = dept_counts.get(dept, 0)
+        total_api = get_api_total(dept)
+        
+        if total_api == -1:
+            print(f"Département {dept} : API injoignable. Passage au département suivant.")
+            continue
+            
+        if total_api == 0:
+            print(f"Département {dept} : 0 DPE trouvés sur l'API ADEME.")
+            continue
+            
+        if count_csv >= total_api:
+            print(f"Département {dept} : Déjà complet ({count_csv}/{total_api} DPE).")
+            continue
+            
+        if count_csv > 0:
+            print(f"Département {dept} : Incomplet ({count_csv}/{total_api} DPE). Nettoyage des lignes partielles...")
+            clean_dept_from_csv(csv_path, dept)
+        else:
+            print(f"Département {dept} : Absent ({total_api} DPE à extraire).")
+            
+        if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
+            with open(csv_path, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(dpe_cols)
                 
+        print(f"Téléchargement DPE séquentiel pour le département {dept}...")
+        url = f"https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant/lines?size=10000&select={select_cols}&q_mode=simple&qs=code_departement_ban:{dept}&format=json"
+        total_extracted = 0
+        
+        with open(csv_path, 'a', encoding='utf-8', newline='') as f:
+            w = csv.writer(f)
+            while url:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                try:
+                    with urllib.request.urlopen(req) as res:
+                        data = json.loads(res.read())
+                        results = data.get('results', [])
+                        if results:
+                            for row in results:
+                                w.writerow([row.get(c, '') for c in dpe_cols])
+                            total_extracted += len(results)
+                        
+                        print(f"  -> {total_extracted}/{total_api} DPE extraits...", end="\r", flush=True)
+                        url = data.get('next')
+                except Exception as e:
+                    print(f"\nErreur (nouvelle tentative dans 5s) : {e}")
+                    import time
+                    time.sleep(5)
             print(f"\n  -> Téléchargement DPE {dept} terminé ! Total: {total_extracted} DPE extraits.")
 
     print(f'\n[Timer] Etape 3 terminée en {time.time() - start_time_local:.2f} secondes.')
