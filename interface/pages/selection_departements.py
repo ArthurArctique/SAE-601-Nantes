@@ -2,14 +2,10 @@ import streamlit as st
 import streamlit.components.v1 as components
 import os
 
-# Déclaration du composant personnalisé de carte
-parent_dir = os.path.dirname(os.path.abspath(__file__))
-interface_dir = os.path.dirname(parent_dir)
-build_dir = os.path.join(interface_dir, "dept_map_component")
-_dept_map_component = components.declare_component("dept_map", path=build_dir)
-
-def dept_map(selected, map_height=550, key=None):
-    return _dept_map_component(selected=selected, map_height=map_height, key=key)
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from dept_map_wrapper import dept_map
 
 # ---------------------------------------------------------------------------
 # CONFIGURATION DE LA PAGE
