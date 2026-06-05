@@ -52,7 +52,7 @@ SELECT
     nom_commune_ban         AS commune,
     etiquette_dpe,
     COUNT(*)                AS nombre_logements,
-    ROUND(AVG(conso_5_usages_par_m2_ep), 1) AS conso_moyenne_m2
+    ROUND(AVG(CAST(conso_5_usages_par_m2_ep AS DOUBLE)), 1) AS conso_moyenne_m2
 FROM dim_dpe
 WHERE etiquette_dpe IS NOT NULL
 GROUP BY code_insee_ban, nom_commune_ban, etiquette_dpe
