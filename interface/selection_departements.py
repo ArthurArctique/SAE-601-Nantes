@@ -284,7 +284,7 @@ with col_controls:
         
         status_text.markdown("**🔄 Initialisation du processus...**")
         
-        cmd = ["python3", "database/build_database.py"] + selected_list
+        cmd = ["python3", "-u", "database/build_database.py"] + selected_list
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,

@@ -129,17 +129,17 @@ def main():
 
 
     # 2. BAN (Mémoire -> DuckDB)
-    print("=== 2. EXTRACTION BAN ===")
+    print("=== 2. EXTRACTION BAN ===", flush=True)
     ban_dfs = []
     for dept in DEPARTEMENTS:
-        print(f"  -> {dept}...")
+        url_ban = f"https://adresse.data.gouv.fr/data/ban/adresses/latest/csv/adresses-{dept}.csv.gz"
+        print(f"  -> {dept} (Téléchargement: {url_ban})...", flush=True)
         try:
-            url_ban = f"https://adresse.data.gouv.fr/data/ban/adresses/latest/csv/adresses-{dept}.csv.gz"
             df_ban = pd.read_csv(url_ban, sep=";", compression="gzip", low_memory=False, 
                                  usecols=['id', 'numero', 'rep', 'nom_voie', 'code_postal', 'code_insee', 'nom_commune', 'lon', 'lat'])
             ban_dfs.append(df_ban)
         except Exception as e:
-            print(f"Erreur BAN pour {dept}: {e}")
+            print(f"Erreur BAN pour {dept}: {e}", flush=True)
             
     if ban_dfs:
         ban_total = pd.concat(ban_dfs, ignore_index=True)
@@ -154,8 +154,9 @@ def main():
 
     # 3. INSEE (Mémoire -> DuckDB)
     import io
-    print("=== 3. EXTRACTION INSEE ===")
+    print("=== 3. EXTRACTION INSEE ===", flush=True)
     url_2021 = "https://www.insee.fr/fr/statistiques/fichier/7756855/indic-struct-distrib-revenu-2021-COMMUNES_csv.zip"
+    print(f"  -> Téléchargement INSEE (ZIP: {url_2021})...", flush=True)
     df_insee = None
     insee_lookup = {}
     try:
@@ -191,8 +192,9 @@ def main():
 
 
     # 4. COMMUNES (GeoJSON -> DuckDB & mémoire pour spatial)
-    print("=== 4. EXTRACTION COMMUNES ===")
+    print("=== 4. EXTRACTION COMMUNES ===", flush=True)
     url_communes = "https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/communes.geojson"
+    print(f"  -> Téléchargement GeoJSON (URL: {url_communes})...", flush=True)
     features = []
     polys = []
     rows_com = []
@@ -220,8 +222,9 @@ def main():
 
 
     # 5. ECOLES
-    print("=== 5. EXTRACTION ECOLES ===")
+    print("=== 5. EXTRACTION ECOLES ===", flush=True)
     url_ecoles = "https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/fr-en-annuaire-education/exports/csv?lang=fr&timezone=Europe%2FBerlin&use_labels=true&delimiter=%3B"
+    print(f"  -> Téléchargement CSV Ecoles (URL API)...", flush=True)
     try:
         df_ecoles = pd.read_csv(url_ecoles, sep=';', low_memory=False)
         df_ecoles = df_ecoles.dropna(subset=['position'])
@@ -249,9 +252,11 @@ def main():
 
 
     # 6. TRANSPORT
-    print("=== 6. EXTRACTION TRANSPORTS ===")
+    print("=== 6. EXTRACTION TRANSPORTS ===", flush=True)
+    url_transports_api = "https://www.data.gouv.fr/api/1/datasets/arrets-de-transport-en-france/"
+    print(f"  -> Téléchargement liste transports (URL: {url_transports_api})...", flush=True)
     try:
-        req = urllib.request.Request("https://www.data.gouv.fr/api/1/datasets/arrets-de-transport-en-france/", headers={'User-Agent': 'Mozilla/5.0'})
+        req = urllib.request.Request(url_transports_api, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as res:
             data = json.loads(res.read())
             url_transports = [r['url'] for r in data['resources'] if 'csv' in r['format'].lower()][0]
@@ -296,10 +301,11 @@ def main():
 
 
     # 7. PEB
-    print("=== 7. EXTRACTION PEB ===")
+    print("=== 7. EXTRACTION PEB ===", flush=True)
     peb_features = []
     for dept in DEPARTEMENTS:
         params = {'service': 'WFS', 'version': '2.0.0', 'request': 'GetFeature', 'typeNames': 'wfs_sup:servitude', 'outputFormat': 'application/json', 'cql_filter': f"categorie='T5' AND partition LIKE '%_{dept}_%'"}
+        print(f"  -> Téléchargement PEB pour {dept}...", flush=True)
         req = urllib.request.Request("https://data.geopf.fr/wfs/ows?" + urllib.parse.urlencode(params))
         try:
             with urllib.request.urlopen(req) as res:
@@ -329,10 +335,10 @@ def main():
 
 
     # 8. DVF (Mémoire -> Enrichissement -> DuckDB)
-    print("=== 8. EXTRACTION ET ENRICHISSEMENT DVF ===")
+    print("=== 8. EXTRACTION ET ENRICHISSEMENT DVF ===", flush=True)
     dvf_dfs = []
     for dept in DEPARTEMENTS:
-        print(f"  -> {dept}...")
+        print(f"  -> Téléchargement DVF {dept}...", flush=True)
         try:
             url_dvf = f"https://files.data.gouv.fr/geo-dvf/latest/csv/2025/departements/{dept}.csv.gz"
             df_dept = pd.read_csv(url_dvf, low_memory=False)
@@ -449,7 +455,7 @@ def main():
     print("Table fait_transactions mise à jour avec succès.\n")
 
     # 9. VUES SQL
-    print("=== 9. RE-CREATION DES VUES SQL ===")
+    print("=== 9. RE-CREATION DES VUES SQL ===", flush=True)
     if os.path.exists("database/create_views.sql"):
         with open("database/create_views.sql", "r", encoding="utf-8") as f:
             sql_views = f.read()
