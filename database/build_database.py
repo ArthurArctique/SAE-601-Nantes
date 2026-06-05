@@ -198,18 +198,18 @@ def main():
     url_ecoles = "https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/fr-en-annuaire-education/exports/csv?lang=fr&timezone=Europe%2FBerlin&use_labels=true&delimiter=%3B"
     try:
         df_ecoles = pd.read_csv(url_ecoles, sep=';', low_memory=False)
-        df_ecoles = df_ecoles.dropna(subset=['Position'])
-        df_ecoles['lat'] = df_ecoles['Position'].apply(lambda x: float(str(x).split(',')[0]) if ',' in str(x) else np.nan)
-        df_ecoles['lon'] = df_ecoles['Position'].apply(lambda x: float(str(x).split(',')[1]) if ',' in str(x) else np.nan)
-        df_ecoles = df_ecoles[df_ecoles['Code département'].astype(str).str.zfill(2).isin(DEPARTEMENTS)]
+        df_ecoles = df_ecoles.dropna(subset=['position'])
+        df_ecoles['lat'] = df_ecoles['position'].apply(lambda x: float(str(x).split(',')[0]) if ',' in str(x) else np.nan)
+        df_ecoles['lon'] = df_ecoles['position'].apply(lambda x: float(str(x).split(',')[1]) if ',' in str(x) else np.nan)
+        df_ecoles = df_ecoles[df_ecoles['Code_departement'].astype(str).str.zfill(2).isin(DEPARTEMENTS)]
         df_ecoles_out = pd.DataFrame({
-            'osm_id': df_ecoles['Identifiant de l\'établissement'],
-            'type': df_ecoles['Type d\'établissement'],
+            'osm_id': df_ecoles['Identifiant_de_l_etablissement'],
+            'type': df_ecoles['Type_etablissement'],
             'lat': df_ecoles['lat'],
             'lon': df_ecoles['lon'],
-            'name': df_ecoles['Nom de l\'établissement'],
-            'city': df_ecoles['Nom de la commune'],
-            'postcode': df_ecoles['Code postal'],
+            'name': df_ecoles['Nom_etablissement'],
+            'city': df_ecoles['Nom_commune'],
+            'postcode': df_ecoles['Code_postal'],
             'amenity': 'school'
         })
         con.execute("CREATE TABLE dim_ecoles AS SELECT * FROM df_ecoles_out")
