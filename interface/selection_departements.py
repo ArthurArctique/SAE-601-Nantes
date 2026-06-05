@@ -271,70 +271,78 @@ with col_controls:
     n_selected = len(st.session_state.selected_depts)
     st.write(f"**{n_selected}** départements sélectionnés.")
 
+    @st.dialog("Téléchargement et Traitement des Données", width="large")
+    def extraction_dialog(selected_list):
+        import subprocess
+        import re
+        
+        st.info("⚠️ Ne fermez pas cette fenêtre avant la fin de l'opération.", icon="⏳")
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        details_text = st.empty()
+        
+        status_text.markdown("**🔄 Initialisation du processus...**")
+        
+        cmd = ["python3", "database/build_database.py"] + selected_list
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        error_logs = []
+        
+        for line in process.stdout:
+            line = line.strip()
+            if not line: continue
+            
+            # Check for main steps (e.g. "=== 1. EXTRACTION DPE ===")
+            match_step = re.search(r"===\s*(\d+)\.\s*(.*?)\s*===", line)
+            if match_step:
+                step_num = int(match_step.group(1))
+                step_name = match_step.group(2)
+                progress = min(step_num * 10, 95) # Up to 95% until completely finished
+                progress_bar.progress(progress)
+                status_text.markdown(f"**Étape {step_num}/9 : {step_name.title()}**")
+                details_text.empty()
+            elif line.startswith("==="):
+                # Initialization or other main step without number
+                status_text.markdown(f"**{line.replace('===', '').strip().title()}**")
+            elif line.startswith("->"):
+                # Sub-steps (departments)
+                details_text.markdown(f"*{line.strip()}*")
+            
+            # Store logs in case of error
+            error_logs.append(line)
+            if len(error_logs) > 200:
+                error_logs.pop(0)
+            
+        process.wait()
+        
+        if process.returncode == 0:
+            progress_bar.progress(100)
+            status_text.markdown("**✅ Mise à jour terminée avec succès !**")
+            details_text.empty()
+            st.success("Toutes les données ont été actualisées et intégrées à la base DuckDB.")
+            st.balloons()
+            if st.button("Fermer", type="primary"):
+                st.rerun()
+        else:
+            progress_bar.progress(100)
+            status_text.markdown("**❌ Erreur lors de la mise à jour.**")
+            details_text.empty()
+            st.error("Le script a rencontré une erreur fatale. Voici les dernières lignes du journal :")
+            with st.expander("Voir les détails de l'erreur", expanded=True):
+                st.code("\\n".join(error_logs), language="text")
+
     if st.session_state.selected_depts:
         selected_list = sorted(st.session_state.selected_depts)
-        
         if st.button("🚀 Lancer l'extraction et la mise à jour", width="stretch", type="primary"):
-            import subprocess
-            import re
-            
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            details_text = st.empty()
-            
-            status_text.markdown("**🔄 Initialisation du processus...**")
-            
-            cmd = ["python3", "database/build_database.py"] + selected_list
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                universal_newlines=True
-            )
-            
-            error_logs = []
-            
-            for line in process.stdout:
-                line = line.strip()
-                if not line: continue
-                
-                # Check for main steps (e.g. "=== 1. EXTRACTION DPE ===")
-                match_step = re.search(r"===\s*(\d+)\.\s*(.*?)\s*===", line)
-                if match_step:
-                    step_num = int(match_step.group(1))
-                    step_name = match_step.group(2)
-                    progress = min(step_num * 10, 95) # Up to 95% until completely finished
-                    progress_bar.progress(progress)
-                    status_text.markdown(f"**Étape {step_num}/9 : {step_name.title()}**")
-                    details_text.empty()
-                elif line.startswith("==="):
-                    # Initialization or other main step without number
-                    status_text.markdown(f"**{line.replace('===', '').strip().title()}**")
-                elif line.startswith("->"):
-                    # Sub-steps (departments)
-                    details_text.markdown(f"*{line.strip()}*")
-                
-                # Store logs in case of error
-                error_logs.append(line)
-                if len(error_logs) > 50:
-                    error_logs.pop(0)
-                
-            process.wait()
-            
-            if process.returncode == 0:
-                progress_bar.progress(100)
-                status_text.markdown("**✅ Mise à jour terminée avec succès !**")
-                details_text.empty()
-                st.success("Toutes les données ont été actualisées et intégrées à la base DuckDB.")
-                st.balloons()
-            else:
-                progress_bar.progress(100)
-                status_text.markdown("**❌ Erreur lors de la mise à jour.**")
-                details_text.empty()
-                st.error("Le script a rencontré une erreur fatale. Voici les dernières lignes du journal :")
-                st.code("\\n".join(error_logs[-20:]), language="text")
+            extraction_dialog(selected_list)
     else:
         st.info("Sélectionnez au moins un département pour mettre à jour la base.")
 
