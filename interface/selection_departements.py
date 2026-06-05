@@ -2,8 +2,7 @@ import streamlit as st
 import json
 import urllib.request
 import ssl
-import folium
-from streamlit_folium import st_folium
+import pydeck as pdk
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
@@ -75,10 +74,10 @@ body {
 }
 
 /* ─── Header Compact ─── */
+/* On supprime les marges négatives qui faisaient chevaucher la barre Streamlit */
 .main-header {
     text-align: left;
-    padding: 0 0 10px 0;
-    margin-top: -40px;
+    padding: 10px 0 10px 0;
 }
 .main-header h1 {
     font-size: 1.8rem !important;
@@ -157,20 +156,16 @@ div[data-baseweb="tag"] *, span[data-baseweb="tag"] * {
     padding-left: 8px;
 }
 
-/* Animation d'apparition */
-@keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(12px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-[data-testid="column"] {
-    animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* Ajustements pour réduire l'espace et éviter le scroll */
+/* Ajustements globaux */
 .block-container {
-    padding-top: 3rem !important;
+    padding-top: 1rem !important; /* Marge modérée pour éviter l'overlap */
     padding-bottom: 0 !important;
     max-width: 95% !important;
+}
+
+/* Empêche le padding par défaut énorme de pydeck */
+iframe {
+    border-radius: 10px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -188,10 +183,6 @@ def load_geojson():
 
 geojson_data = load_geojson()
 
-# Filtrer uniquement les départements gérés
-filtered_features = [f for f in geojson_data.get("features", []) if f.get("properties", {}).get("code", "") in DEPARTEMENTS]
-geojson_data["features"] = filtered_features
-
 # ---------------------------------------------------------------------------
 # SESSION STATE
 # ---------------------------------------------------------------------------
@@ -204,14 +195,14 @@ if "selected_depts" not in st.session_state:
 st.markdown("""
 <div class="main-header">
     <h1>🗺️ Extraction & Préparation des Données</h1>
-    <p>Sélectionnez les départements pour construire la base de données DuckDB. Le fond de carte OSM est interactif.</p>
+    <p>Sélectionnez les départements pour construire la base de données DuckDB. Le fond de carte interactif est synchronisé.</p>
 </div>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # LAYOUT : Contrôles à gauche, Carte à droite (Proportions adaptées pour No-Scroll)
 # ---------------------------------------------------------------------------
-col_controls, col_map = st.columns([1, 1.8], gap="medium")
+col_controls, col_map = st.columns([1, 1.6], gap="medium")
 
 with col_controls:
     st.markdown("<div class='panel-title'>Recherche</div>", unsafe_allow_html=True)
@@ -300,7 +291,7 @@ with col_controls:
                 logs = []
                 for line in process.stdout:
                     logs.append(line.strip())
-                    log_container.code("\\n".join(logs[-10:]), language="text") # Compacté pour éviter le scroll
+                    log_container.code("\\n".join(logs[-8:]), language="text") # Plus court pour éviter le scroll
                     
                 process.wait()
                 
@@ -315,62 +306,72 @@ with col_controls:
         st.info("Sélectionnez au moins un département pour mettre à jour la base.")
 
 # ---------------------------------------------------------------------------
-# CARTE INTERACTIVE FOLIUM (colonne droite)
+# CARTE INTERACTIVE PYDECK (colonne droite)
 # ---------------------------------------------------------------------------
 with col_map:
     st.markdown("<div class='map-container'>", unsafe_allow_html=True)
     
-    # Centre et zoom adaptés pour un affichage compact
-    m = folium.Map(location=[46.5, 2.5], zoom_start=5, tiles="OpenStreetMap", control_scale=True)
-    
-    # Style en fonction de la sélection
-    def style_function(feature):
-        code = feature['properties']['code']
-        is_selected = code in st.session_state.selected_depts
-        return {
-            'fillColor': '#d4af37' if is_selected else '#e2e8f0', # Gold DA
-            'color': '#000000' if is_selected else '#94a3b8',
-            'weight': 1.5 if is_selected else 1,
-            'fillOpacity': 0.6 if is_selected else 0.3
-        }
+    # Préparer les features pour PyDeck avec la couleur d'état
+    features = []
+    for f in geojson_data.get("features", []):
+        code = f.get("properties", {}).get("code", "")
+        if code in DEPARTEMENTS:
+            nom = DEPARTEMENTS.get(code, "")
+            is_selected = code in st.session_state.selected_depts
+            
+            feat = {
+                "type": "Feature",
+                "geometry": f["geometry"],
+                "properties": {
+                    "code": code,
+                    "nom": nom,
+                    "fill_color": [212, 175, 55, 180] if is_selected else [226, 232, 240, 80],
+                    "line_color": [17, 24, 39, 255] if is_selected else [148, 163, 184, 255],
+                    "line_width": 2500 if is_selected else 800
+                }
+            }
+            features.append(feat)
 
-    def highlight_function(feature):
-        return {
-            'weight': 2.5,
-            'color': '#111827',
-            'fillOpacity': 0.8
-        }
-
-    folium.GeoJson(
-        geojson_data,
-        style_function=style_function,
-        highlight_function=highlight_function,
-        tooltip=folium.GeoJsonTooltip(
-            fields=['code', 'nom'],
-            aliases=['Département:', 'Nom:'],
-            style=("background-color: white; color: #111827; font-family: Inter; font-weight: 600; padding: 4px; border-radius: 4px;")
-        )
-    ).add_to(m)
-
-    # Affichage de la carte et récupération du clic
-    # Utilisation d'une hauteur réduite pour tenir sur un seul écran
-    st_data = st_folium(
-        m,
-        width="100%",
-        height=520,
-        returned_objects=["last_active_drawing"],
-        key="folium_map"
+    layer = pdk.Layer(
+        "GeoJsonLayer",
+        data={"type": "FeatureCollection", "features": features},
+        pickable=True,
+        stroked=True,
+        filled=True,
+        extruded=False,
+        get_fill_color="properties.fill_color",
+        get_line_color="properties.line_color",
+        get_line_width="properties.line_width",
+        auto_highlight=True,
+        highlight_color=[255, 255, 255, 150]
     )
 
-    # Logique de synchronisation bidirectionnelle
-    if st_data and st_data.get("last_active_drawing"):
-        clicked_code = st_data["last_active_drawing"]["properties"]["code"]
-        current = st.session_state.selected_depts
-        if clicked_code in current:
-            current.remove(clicked_code)
-        else:
-            current.append(clicked_code)
-        st.session_state.selected_depts = sorted(current)
-        st.rerun()
+    view_state = pdk.ViewState(latitude=46.5, longitude=2.5, zoom=4.7, bearing=0, pitch=0)
+
+    deck = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        map_style="light",  # Style vectoriel clair type OSM
+        tooltip={"text": "{nom} ({code})"}
+    )
+
+    # Affichage PyDeck (Très performant, ne recharge pas la vue, gère le clic nativement !)
+    event = st.pydeck_chart(deck, use_container_width=True, height=550, on_select="rerun", selection_mode="multi-object")
+
+    # Si l'utilisateur clique sur la carte (PyDeck renvoie selection.objects sous forme de dict par layer id)
+    if event and hasattr(event, "selection") and event.selection.get("objects"):
+        for layer_id, obj_list in event.selection["objects"].items():
+            if obj_list:
+                # obj_list contient les features cliquées
+                clicked_code = obj_list[0]["properties"]["code"]
+                
+                current = st.session_state.selected_depts
+                if clicked_code in current:
+                    current.remove(clicked_code)
+                else:
+                    current.append(clicked_code)
+                    
+                st.session_state.selected_depts = sorted(current)
+                st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
