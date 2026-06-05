@@ -20,10 +20,6 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 DB_PATH = "sae601_nantes.duckdb"
 
-# Pour l'exemple, on cible ces départements. 
-# Ces valeurs pourraient être importées depuis interface.py ou un fichier config.
-DEPARTEMENTS = ["44", "35", "69"] 
-
 def download_in_memory(url):
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     with urllib.request.urlopen(req) as response:
@@ -43,30 +39,55 @@ def normalize_address(num, type_voie, nom_voie, commune):
     full = re.sub(r'[^\w\s]', ' ', full)
     return " ".join(full.split())
 
+def table_exists(con, table_name):
+    return con.execute(f"SELECT COUNT(*) FROM duckdb_tables() WHERE table_name='{table_name}' AND schema_name='main'").fetchone()[0] > 0
+
+def create_or_insert(con, table_name, df_name):
+    if table_exists(con, table_name):
+        con.execute(f"INSERT INTO {table_name} SELECT * FROM {df_name}")
+    else:
+        con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM {df_name}")
+
 def main():
     start_time_global = time.time()
     
-    # 0. Initialisation DuckDB
+    # Récupération des départements demandés en arguments (ou 44 par défaut)
+    target_depts = sys.argv[1:] if len(sys.argv) > 1 else ["44"]
+    target_depts = [d.zfill(2) for d in target_depts]
+
     print("=== INITIALISATION DUCKDB ===")
-    for path in [DB_PATH, f"{DB_PATH}.wal"]:
-        if os.path.exists(path):
-            try:
-                os.remove(path)
-            except Exception as e:
-                print(f"[ERREUR] Impossible de supprimer {path} : {e}")
-                sys.exit(1)
-                
-    # On installe/charge l'extension httpfs pour lire directement depuis HTTPS
     con = duckdb.connect(DB_PATH)
     con.execute("INSTALL httpfs; LOAD httpfs;")
-    print(f"Base de données {DB_PATH} créée.\n")
+    print(f"Connexion à la base {DB_PATH} établie.")
+
+    # Vérifier les départements déjà existants dans la base
+    existing_depts = []
+    if table_exists(con, "dim_communes"):
+        try:
+            res = con.execute("SELECT DISTINCT SUBSTR(code_commune, 1, 2) FROM dim_communes WHERE code_commune IS NOT NULL").fetchall()
+            existing_depts = [r[0] for r in res if r[0]]
+        except Exception:
+            pass
+
+    print(f"Départements déjà en base : {existing_depts}")
+    
+    # Calculer ceux qui manquent
+    missing_depts = [d for d in target_depts if d not in existing_depts]
+    if not missing_depts:
+        print(f"\n[SUCCÈS] Tous les départements demandés ({target_depts}) sont DÉJÀ dans la base !")
+        print("Fin du script, aucune donnée téléchargée.")
+        con.close()
+        return
+
+    DEPARTEMENTS = missing_depts
+    print(f"\n---> Démarrage de l'extraction pour les départements manquants : {DEPARTEMENTS}\n")
 
     # 1. DPE (via DuckDB HTTP direct)
     print("=== 1. EXTRACTION DPE (DuckDB direct) ===")
     url_hf = "https://huggingface.co/datasets/ArthurArctique/DPE_France/resolve/main/dpe-multidept.csv"
     dept_list = "','".join(DEPARTEMENTS)
-    query_dpe = f"""
-        CREATE TABLE dim_dpe AS
+    
+    query_dpe_select = f"""
         SELECT
             "numero_dpe",
             "etiquette_dpe",
@@ -82,21 +103,25 @@ def main():
         WHERE SUBSTR(code_insee_ban, 1, 2) IN ('{dept_list}')
     """
     try:
-        con.execute(query_dpe)
-        con.execute("CREATE INDEX idx_dim_dpe_etiquette ON dim_dpe(etiquette_dpe)")
-        con.execute("CREATE INDEX idx_dim_dpe_code_insee ON dim_dpe(code_insee_ban)")
-        print("Table dim_dpe créée avec succès.")
+        if table_exists(con, "dim_dpe"):
+            con.execute(f"INSERT INTO dim_dpe {query_dpe_select}")
+        else:
+            con.execute(f"CREATE TABLE dim_dpe AS {query_dpe_select}")
+            con.execute("CREATE INDEX idx_dim_dpe_etiquette ON dim_dpe(etiquette_dpe)")
+            con.execute("CREATE INDEX idx_dim_dpe_code_insee ON dim_dpe(code_insee_ban)")
+        print(f"DPE mis à jour pour {DEPARTEMENTS}.")
     except Exception as e:
-        print(f"Erreur DPE DuckDB: {e}. Création d'une table vide.")
-        con.execute("""CREATE TABLE dim_dpe (numero_dpe VARCHAR, etiquette_dpe VARCHAR, etiquette_ges VARCHAR, annee_construction VARCHAR, date_reception_dpe VARCHAR, numero_voie_ban VARCHAR, nom_rue_ban VARCHAR, nom_commune_ban VARCHAR, code_insee_ban VARCHAR, conso_5_usages_par_m2_ep VARCHAR)""")
+        print(f"Erreur DPE DuckDB: {e}.")
 
-    
-    # Récupération du référentiel DPE pour l'enrichissement DVF plus tard
-    dpe_df = con.execute("SELECT numero_voie_ban, nom_rue_ban, nom_commune_ban, etiquette_dpe, etiquette_ges, annee_construction FROM dim_dpe").df()
-    dpe_df['adresse_normalisee'] = dpe_df.apply(
-        lambda r: normalize_address(r.get('numero_voie_ban', ''), '', r.get('nom_rue_ban', ''), r.get('nom_commune_ban', '')), axis=1
-    )
-    dpe_lookup = dpe_df.drop_duplicates(subset=['adresse_normalisee']).set_index('adresse_normalisee')[['etiquette_dpe', 'etiquette_ges', 'annee_construction']].to_dict('index')
+    # Récupération du référentiel DPE ENTIER pour l'enrichissement (y compris ceux déjà en base pour éviter des erreurs)
+    dpe_df = con.execute(f"SELECT numero_voie_ban, nom_rue_ban, nom_commune_ban, etiquette_dpe, etiquette_ges, annee_construction FROM dim_dpe WHERE SUBSTR(code_insee_ban, 1, 2) IN ('{dept_list}')").df()
+    if not dpe_df.empty:
+        dpe_df['adresse_normalisee'] = dpe_df.apply(
+            lambda r: normalize_address(r.get('numero_voie_ban', ''), '', r.get('nom_rue_ban', ''), r.get('nom_commune_ban', '')), axis=1
+        )
+        dpe_lookup = dpe_df.drop_duplicates(subset=['adresse_normalisee']).set_index('adresse_normalisee')[['etiquette_dpe', 'etiquette_ges', 'annee_construction']].to_dict('index')
+    else:
+        dpe_lookup = {}
     del dpe_df
     print("Référentiel DPE en mémoire pour enrichissement.\n")
 
@@ -117,13 +142,12 @@ def main():
     if ban_dfs:
         ban_total = pd.concat(ban_dfs, ignore_index=True)
         ban_total.rename(columns={'id': 'id_ban'}, inplace=True)
-        con.execute("CREATE TABLE dim_ban AS SELECT * FROM ban_total")
-        con.execute("CREATE INDEX idx_dim_ban_code_insee ON dim_ban(code_insee)")
+        create_or_insert(con, "dim_ban", "ban_total")
+        if not table_exists(con, "dim_ban"): # won't happen but safe
+            con.execute("CREATE INDEX idx_dim_ban_code_insee ON dim_ban(code_insee)")
         del ban_total
         del ban_dfs
-    else:
-        con.execute("CREATE TABLE dim_ban (id_ban VARCHAR)")
-    print("Table dim_ban créée.\n")
+    print("Table dim_ban mise à jour.\n")
 
 
     # 3. INSEE (Mémoire -> DuckDB)
@@ -155,15 +179,13 @@ def main():
                         
         if df_insee is not None and not df_insee.empty:
             df_insee = df_insee.reset_index().rename(columns={'index': 'CODGEO', df_insee.index.name: 'CODGEO'})
-            con.execute("CREATE TABLE dim_insee AS SELECT * FROM df_insee")
-            con.execute("CREATE INDEX idx_dim_insee_codgeo ON dim_insee(CODGEO)")
+            create_or_insert(con, "dim_insee", "df_insee")
+            try: con.execute("CREATE INDEX idx_dim_insee_codgeo ON dim_insee(CODGEO)")
+            except: pass
             insee_lookup = df_insee.set_index('CODGEO')['Q221'].to_dict()
-        else:
-            con.execute("CREATE TABLE dim_insee (CODGEO VARCHAR)")
     except Exception as e:
         print(f"Erreur INSEE: {e}")
-        con.execute("CREATE TABLE dim_insee (CODGEO VARCHAR)")
-    print("Table dim_insee créée.\n")
+    print("Table dim_insee mise à jour.\n")
 
 
     # 4. COMMUNES (GeoJSON -> DuckDB & mémoire pour spatial)
@@ -186,11 +208,13 @@ def main():
     except Exception as e:
         print(f"Erreur communes: {e}")
                 
-    con.execute("CREATE TABLE dim_communes (code_commune VARCHAR, nom VARCHAR, geometrie_json TEXT)")
+    if not table_exists(con, "dim_communes"):
+        con.execute("CREATE TABLE dim_communes (code_commune VARCHAR, nom VARCHAR, geometrie_json TEXT)")
+        con.execute("CREATE INDEX idx_dim_communes_code ON dim_communes(code_commune)")
+        
     if rows_com:
         con.executemany("INSERT INTO dim_communes VALUES (?, ?, ?)", rows_com)
-    con.execute("CREATE INDEX idx_dim_communes_code ON dim_communes(code_commune)")
-    print("Table dim_communes créée.\n")
+    print("Table dim_communes mise à jour.\n")
 
 
     # 5. ECOLES
@@ -202,22 +226,24 @@ def main():
         df_ecoles['lat'] = df_ecoles['position'].apply(lambda x: float(str(x).split(',')[0]) if ',' in str(x) else np.nan)
         df_ecoles['lon'] = df_ecoles['position'].apply(lambda x: float(str(x).split(',')[1]) if ',' in str(x) else np.nan)
         df_ecoles = df_ecoles[df_ecoles['Code_departement'].astype(str).str.zfill(2).isin(DEPARTEMENTS)]
-        df_ecoles_out = pd.DataFrame({
-            'osm_id': df_ecoles['Identifiant_de_l_etablissement'],
-            'type': df_ecoles['Type_etablissement'],
-            'lat': df_ecoles['lat'],
-            'lon': df_ecoles['lon'],
-            'name': df_ecoles['Nom_etablissement'],
-            'city': df_ecoles['Nom_commune'],
-            'postcode': df_ecoles['Code_postal'],
-            'amenity': 'school'
-        })
-        con.execute("CREATE TABLE dim_ecoles AS SELECT * FROM df_ecoles_out")
+        if not df_ecoles.empty:
+            df_ecoles_out = pd.DataFrame({
+                'osm_id': df_ecoles['Identifiant_de_l_etablissement'],
+                'type': df_ecoles['Type_etablissement'],
+                'lat': df_ecoles['lat'],
+                'lon': df_ecoles['lon'],
+                'name': df_ecoles['Nom_etablissement'],
+                'city': df_ecoles['Nom_commune'],
+                'postcode': df_ecoles['Code_postal'],
+                'amenity': 'school'
+            })
+            create_or_insert(con, "dim_ecoles", "df_ecoles_out")
+        else:
+            df_ecoles_out = pd.DataFrame()
     except Exception as e:
         print(f"Erreur écoles: {e}")
         df_ecoles_out = pd.DataFrame()
-        con.execute("CREATE TABLE dim_ecoles (osm_id VARCHAR)")
-    print("Table dim_ecoles créée.\n")
+    print("Table dim_ecoles mise à jour.\n")
 
 
     # 6. TRANSPORT
@@ -250,19 +276,21 @@ def main():
             mask = df_trans.apply(lambda r: in_poly(r['stop_lon'], r['stop_lat']), axis=1)
             df_trans = df_trans[mask]
             
-        df_trans_out = pd.DataFrame({
-            'osm_id': df_trans['stop_id'],
-            'lat': df_trans['stop_lat'],
-            'lon': df_trans['stop_lon'],
-            'name': df_trans['stop_name'],
-            'railway_type': 'station'
-        })
-        con.execute("CREATE TABLE dim_transport AS SELECT * FROM df_trans_out")
+        if not df_trans.empty:
+            df_trans_out = pd.DataFrame({
+                'osm_id': df_trans['stop_id'],
+                'lat': df_trans['stop_lat'],
+                'lon': df_trans['stop_lon'],
+                'name': df_trans['stop_name'],
+                'railway_type': 'station'
+            })
+            create_or_insert(con, "dim_transport", "df_trans_out")
+        else:
+            df_trans_out = pd.DataFrame()
     except Exception as e:
         print(f"Erreur transports: {e}")
         df_trans_out = pd.DataFrame()
-        con.execute("CREATE TABLE dim_transport (osm_id VARCHAR)")
-    print("Table dim_transport créée.\n")
+    print("Table dim_transport mise à jour.\n")
 
 
     # 7. PEB
@@ -288,11 +316,14 @@ def main():
             props.get('descriptio', ''),
             json.dumps(geom) if geom else None
         ))
-    con.execute("CREATE TABLE dim_peb (gid VARCHAR, categorie VARCHAR, nomsup VARCHAR, descriptio VARCHAR, geometrie_json TEXT)")
+        
+    if not table_exists(con, "dim_peb"):
+        con.execute("CREATE TABLE dim_peb (gid VARCHAR, categorie VARCHAR, nomsup VARCHAR, descriptio VARCHAR, geometrie_json TEXT)")
+        con.execute("CREATE INDEX idx_dim_peb_gid ON dim_peb(gid)")
+        
     if rows_peb:
         con.executemany("INSERT INTO dim_peb VALUES (?, ?, ?, ?, ?)", rows_peb)
-    con.execute("CREATE INDEX idx_dim_peb_gid ON dim_peb(gid)")
-    print("Table dim_peb créée.\n")
+    print("Table dim_peb mise à jour.\n")
 
 
     # 8. DVF (Mémoire -> Enrichissement -> DuckDB)
@@ -405,25 +436,25 @@ def main():
             if c not in dvf.columns: dvf[c] = np.nan
         dvf_out = dvf[out_cols].copy()
         
-        con.execute("CREATE TABLE fait_transactions AS SELECT * FROM dvf_out")
-        con.execute("CREATE INDEX idx_ft_code_insee ON fait_transactions(code_insee)")
-        con.execute("CREATE INDEX idx_ft_type_bien ON fait_transactions(type_bien)")
-        con.execute("CREATE INDEX idx_ft_dpe ON fait_transactions(dpe_classe)")
+        create_or_insert(con, "fait_transactions", "dvf_out")
+        try:
+            con.execute("CREATE INDEX idx_ft_code_insee ON fait_transactions(code_insee)")
+            con.execute("CREATE INDEX idx_ft_type_bien ON fait_transactions(type_bien)")
+            con.execute("CREATE INDEX idx_ft_dpe ON fait_transactions(dpe_classe)")
+        except:
+            pass # indexes already exist
         
-    print("Table fait_transactions créée avec succès.\n")
+    print("Table fait_transactions mise à jour avec succès.\n")
 
     # 9. VUES SQL
-    print("=== 9. CREATION DES VUES SQL ===")
+    print("=== 9. RE-CREATION DES VUES SQL ===")
     if os.path.exists("database/create_views.sql"):
         with open("database/create_views.sql", "r", encoding="utf-8") as f:
             sql_views = f.read()
-        
-        # On découpe selon les ';' pour ignorer les lignes vides
         statements = []
         current = ""
         for line in sql_views.split('\n'):
-            if line.strip().startswith('--'):
-                continue
+            if line.strip().startswith('--'): continue
             current += " " + line
             if ';' in current:
                 parts = current.split(';')
@@ -432,13 +463,9 @@ def main():
                 
         for stmt in statements:
             if stmt.strip():
-                try:
-                    con.execute(stmt)
-                except Exception as e:
-                    print(f"Erreur lors de la création d'une vue : {e}")
-        print("Vues créées avec succès.\n")
-    else:
-        print("Fichier create_views.sql non trouvé, vues ignorées.\n")
+                try: con.execute(stmt)
+                except Exception as e: print(f"Erreur vue : {e}")
+        print("Vues actualisées.\n")
 
     # Affichage du résumé
     print("=" * 60)
@@ -451,17 +478,8 @@ def main():
 
     con.close()
     
-    # 10. Nettoyage dossier data
-    print("=== 10. NETTOYAGE ===")
-    if os.path.exists("data"):
-        try:
-            shutil.rmtree("data")
-            print("Dossier 'data/' temporaire supprimé (il peut être récréé ultérieurement).")
-        except Exception as e:
-            print(f"Erreur lors de la suppression de data/ : {e}")
-
     print(f"\n[Terminé] Process complet en {time.time() - start_time_global:.2f} secondes.")
-    print(f"La base de données finale est disponible dans : {DB_PATH}")
+    print(f"Base de données : {DB_PATH}")
 
 if __name__ == '__main__':
     main()
