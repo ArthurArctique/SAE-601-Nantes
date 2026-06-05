@@ -651,16 +651,27 @@ with tab_analyse:
                         st.dataframe(df_show, hide_index=True, use_container_width=True)
 
                 with col_c2:
-                    st.markdown("#### Évolution Historique des Ventes (2025)")
-                    # Mock de la tendance sur l'année avec variance locale et globale
-                    mois = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
-                    np.random.seed(42) # pour fixité
-                    prix_glob = [median_nantes_prix_m2 * (1 + np.random.uniform(-0.02, 0.02)) for _ in range(12)]
-                    prix_loc = [median_local_prix_m2 * (1 + np.random.uniform(-0.03, 0.03)) for _ in range(12)]
+                    st.markdown("#### Évolution Historique des Ventes")
+                    
+                    # Calcul sur les vraies données
+                    df_dvf['date_m'] = pd.to_datetime(df_dvf['date_mutation'], errors='coerce')
+                    df_dvf['mois_annee'] = df_dvf['date_m'].dt.to_period('M').astype(str)
+                    
+                    # Tendance Globale (Ville complète)
+                    trend_glob = df_dvf.groupby('mois_annee')['prix_m2'].median().reset_index().sort_values('mois_annee')
+                    
+                    # Ventes Locales (15 voisines)
+                    closest_15['date_m'] = pd.to_datetime(closest_15['date_mutation'], errors='coerce')
+                    closest_15['mois_annee'] = closest_15['date_m'].dt.to_period('M').astype(str)
+                    trend_loc = closest_15.groupby('mois_annee')['prix_m2'].median().reset_index().sort_values('mois_annee')
                     
                     fig_trend = go.Figure()
-                    fig_trend.add_trace(go.Scatter(x=mois, y=prix_glob, mode='lines', name='Moyenne Ville', line=dict(color='#94a3b8', width=2, dash='dash')))
-                    fig_trend.add_trace(go.Scatter(x=mois, y=prix_loc, mode='lines+markers', name='Micro-Quartier', line=dict(color='#d4af37', width=3)))
+                    if not trend_glob.empty:
+                        fig_trend.add_trace(go.Scatter(x=trend_glob['mois_annee'], y=trend_glob['prix_m2'], mode='lines', name='Moyenne Ville', line=dict(color='#94a3b8', width=2, dash='dash')))
+                    if not trend_loc.empty:
+                        # Pour le local, on met des marqueurs car il y a peu de points (les 15 voisins)
+                        fig_trend.add_trace(go.Scatter(x=trend_loc['mois_annee'], y=trend_loc['prix_m2'], mode='markers+lines', name='Micro-Quartier', marker=dict(color='#d4af37', size=10), line=dict(color='#d4af37', width=2)))
+                    
                     fig_trend.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=300, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis=dict(showgrid=False, tickfont=dict(color=_CHART_TEXT)), yaxis=dict(gridcolor=_CHART_GRID, tickfont=dict(color=_CHART_TEXT), ticksuffix=" €"), legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1.0, font=dict(color=_TEXT_PRIMARY)))
                     st.plotly_chart(fig_trend, use_container_width=True, config={'displayModeBar': False})
 
