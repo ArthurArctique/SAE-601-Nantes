@@ -9,7 +9,7 @@ import duckdb
 import os
 
 # ---------------------------------------------------------------------------
-# 1. CONFIGURATION
+# 1. CONFIGURATION ET THEME
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="Observatoire Foncier",
@@ -18,34 +18,68 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+is_dark = st.session_state.dark_mode
+
+# Palettes dynamiques
+if is_dark:
+    _BG_MAIN = "#0f172a"
+    _BG_SIDEBAR = "#1e293b"
+    _BG_CARD = "#1e293b"
+    _BORDER_CARD = "#334155"
+    _TEXT_PRIMARY = "#f1f5f9"
+    _TEXT_SECONDARY = "#94a3b8"
+    _TEXT_MUTED = "#64748b"
+    _SHADOW_CARD = "rgba(0,0,0,0.30)"
+    _BORDER_SIDEBAR = "#334155"
+    _SCROLLBAR = "#475569"
+    _HOVER_SHADOW = "rgba(212,175,55,0.25)"
+    _CHART_GRID = "#334155"
+    _CHART_TEXT = "#94a3b8"
+    _SIDEBAR_H3_BG = "#0f172a"
+    _SIDEBAR_H3_TEXT = "#f1f5f9"
+    _SIDEBAR_TEXT = "#e2e8f0"
+else:
+    _BG_MAIN = "#ffffff"
+    _BG_SIDEBAR = "#f8fafc"
+    _BG_CARD = "#ffffff"
+    _BORDER_CARD = "#e2e8f0"
+    _TEXT_PRIMARY = "#111827"
+    _TEXT_SECONDARY = "#64748b"
+    _TEXT_MUTED = "#aaaaaa"
+    _SHADOW_CARD = "rgba(0,0,0,0.05)"
+    _BORDER_SIDEBAR = "#e2e8f0"
+    _SCROLLBAR = "#cccccc"
+    _HOVER_SHADOW = "rgba(0,0,0,0.08)"
+    _CHART_GRID = "#e2e8f0"
+    _CHART_TEXT = "#64748b"
+    _SIDEBAR_H3_BG = "#ffffff"
+    _SIDEBAR_H3_TEXT = "#1e293b"
+    _SIDEBAR_TEXT = "#000000"
+
 DB_PATH = "sae601_nantes.duckdb"
 
 DEPT_NAMES = {
-    "01": "Ain", "02": "Aisne", "03": "Allier", "04": "Alpes-de-Haute-Provence",
-    "05": "Hautes-Alpes", "06": "Alpes-Maritimes", "07": "Ardèche", "08": "Ardennes",
-    "09": "Ariège", "10": "Aube", "11": "Aude", "12": "Aveyron",
-    "13": "Bouches-du-Rhône", "14": "Calvados", "15": "Cantal", "16": "Charente",
-    "17": "Charente-Maritime", "18": "Cher", "19": "Corrèze", "2A": "Corse-du-Sud",
-    "2B": "Haute-Corse", "21": "Côte-d'Or", "22": "Côtes-d'Armor", "23": "Creuse",
-    "24": "Dordogne", "25": "Doubs", "26": "Drôme", "27": "Eure",
-    "28": "Eure-et-Loir", "29": "Finistère", "30": "Gard", "31": "Haute-Garonne",
-    "32": "Gers", "33": "Gironde", "34": "Hérault", "35": "Ille-et-Vilaine",
-    "36": "Indre", "37": "Indre-et-Loire", "38": "Isère", "39": "Jura",
-    "40": "Landes", "41": "Loir-et-Cher", "42": "Loire", "43": "Haute-Loire",
-    "44": "Loire-Atlantique", "45": "Loiret", "46": "Lot", "47": "Lot-et-Garonne",
-    "48": "Lozère", "49": "Maine-et-Loire", "50": "Manche", "51": "Marne",
-    "52": "Haute-Marne", "53": "Mayenne", "54": "Meurthe-et-Moselle", "55": "Meuse",
-    "56": "Morbihan", "57": "Moselle", "58": "Nièvre", "59": "Nord",
-    "60": "Oise", "61": "Orne", "62": "Pas-de-Calais", "63": "Puy-de-Dôme",
-    "64": "Pyrénées-Atlantiques", "65": "Hautes-Pyrénées", "66": "Pyrénées-Orientales",
-    "67": "Bas-Rhin", "68": "Haut-Rhin", "69": "Rhône", "70": "Haute-Saône",
-    "71": "Saône-et-Loire", "72": "Sarthe", "73": "Savoie", "74": "Haute-Savoie",
-    "75": "Paris", "76": "Seine-Maritime", "77": "Seine-et-Marne", "78": "Yvelines",
-    "79": "Deux-Sèvres", "80": "Somme", "81": "Tarn", "82": "Tarn-et-Garonne",
-    "83": "Var", "84": "Vaucluse", "85": "Vendée", "86": "Vienne",
-    "87": "Haute-Vienne", "88": "Vosges", "89": "Yonne", "90": "Territoire de Belfort",
-    "91": "Essonne", "92": "Hauts-de-Seine", "93": "Seine-Saint-Denis",
-    "94": "Val-de-Marne", "95": "Val-d'Oise",
+    "01": "Ain", "02": "Aisne", "03": "Allier", "04": "Alpes-de-Haute-Provence", "05": "Hautes-Alpes",
+    "06": "Alpes-Maritimes", "07": "Ardèche", "08": "Ardennes", "09": "Ariège", "10": "Aube",
+    "11": "Aude", "12": "Aveyron", "13": "Bouches-du-Rhône", "14": "Calvados", "15": "Cantal",
+    "16": "Charente", "17": "Charente-Maritime", "18": "Cher", "19": "Corrèze", "2A": "Corse-du-Sud",
+    "2B": "Haute-Corse", "21": "Côte-d'Or", "22": "Côtes-d'Armor", "23": "Creuse", "24": "Dordogne",
+    "25": "Doubs", "26": "Drôme", "27": "Eure", "28": "Eure-et-Loir", "29": "Finistère", "30": "Gard",
+    "31": "Haute-Garonne", "32": "Gers", "33": "Gironde", "34": "Hérault", "35": "Ille-et-Vilaine",
+    "36": "Indre", "37": "Indre-et-Loire", "38": "Isère", "39": "Jura", "40": "Landes",
+    "41": "Loir-et-Cher", "42": "Loire", "43": "Haute-Loire", "44": "Loire-Atlantique", "45": "Loiret",
+    "46": "Lot", "47": "Lot-et-Garonne", "48": "Lozère", "49": "Maine-et-Loire", "50": "Manche",
+    "51": "Marne", "52": "Haute-Marne", "53": "Mayenne", "54": "Meurthe-et-Moselle", "55": "Meuse",
+    "56": "Morbihan", "57": "Moselle", "58": "Nièvre", "59": "Nord", "60": "Oise", "61": "Orne",
+    "62": "Pas-de-Calais", "63": "Puy-de-Dôme", "64": "Pyrénées-Atlantiques", "65": "Hautes-Pyrénées",
+    "66": "Pyrénées-Orientales", "67": "Bas-Rhin", "68": "Haut-Rhin", "69": "Rhône", "70": "Haute-Saône",
+    "71": "Saône-et-Loire", "72": "Sarthe", "73": "Savoie", "74": "Haute-Savoie", "75": "Paris",
+    "76": "Seine-Maritime", "77": "Seine-et-Marne", "78": "Yvelines", "79": "Deux-Sèvres", "80": "Somme",
+    "81": "Tarn", "82": "Tarn-et-Garonne", "83": "Var", "84": "Vaucluse", "85": "Vendée", "86": "Vienne",
+    "87": "Haute-Vienne", "88": "Vosges", "89": "Yonne", "90": "Territoire de Belfort", "91": "Essonne",
+    "92": "Hauts-de-Seine", "93": "Seine-Saint-Denis", "94": "Val-de-Marne", "95": "Val-d'Oise",
 }
 
 DPE_COLORS = {
@@ -61,75 +95,77 @@ PRICE_COLORS = [
 # ---------------------------------------------------------------------------
 # 2. CSS
 # ---------------------------------------------------------------------------
-st.markdown("""
+st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 /* No scroll */
-html, body, .stApp { overflow: hidden !important; font-family: 'Inter', sans-serif !important; }
-.stApp { background-color: #ffffff !important; }
-.block-container { padding-top: 1rem !important; padding-bottom: 0 !important; max-width: 98% !important; }
-header[data-testid="stHeader"] { display: none !important; }
+html, body, .stApp {{ overflow: hidden !important; font-family: 'Inter', sans-serif !important; }}
+.stApp {{ background-color: {_BG_MAIN} !important; transition: background-color 0.3s ease; }}
+.block-container {{ padding-top: 1rem !important; padding-bottom: 0 !important; max-width: 98% !important; }}
+header[data-testid="stHeader"] {{ display: none !important; }}
 
-/* Texte noir */
-.stApp h1,.stApp h2,.stApp h3,.stApp h4,.stApp h5,.stApp p,.stApp li,.stApp span:not(.prop-badge) { color: #111827 !important; }
-button[data-baseweb="tab"] p, button[data-baseweb="tab"] span { color: #111827 !important; }
+/* Textes généraux */
+.stApp h1,.stApp h2,.stApp h3,.stApp h4,.stApp h5,.stApp p,.stApp li,.stApp span:not(.prop-badge) {{ color: {_TEXT_PRIMARY} !important; }}
+button[data-baseweb="tab"] p, button[data-baseweb="tab"] span {{ color: {_TEXT_PRIMARY} !important; }}
 
 /* Sidebar */
-[data-testid="stSidebar"] { background-color: #f8fafc !important; border-right: 1px solid #e2e8f0; }
+[data-testid="stSidebar"] {{ background-color: {_BG_SIDEBAR} !important; border-right: 1px solid {_BORDER_SIDEBAR}; transition: background-color 0.3s ease; }}
 [data-testid="stSidebar"] p,[data-testid="stSidebar"] label,[data-testid="stSidebar"] h1,
 [data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3,[data-testid="stSidebar"] h4,
-[data-testid="stSidebar"] h5,[data-testid="stSidebar"] span { color: #000000 !important; }
-[data-testid="stSidebar"] h3 {
-    background: #fff; color: #1e293b !important; padding: 8px 12px !important;
-    border-radius: 8px !important; box-shadow: 0 2px 8px rgba(0,0,0,.05) !important;
+[data-testid="stSidebar"] h5,[data-testid="stSidebar"] span {{ color: {_SIDEBAR_TEXT} !important; }}
+[data-testid="stSidebar"] h3 {{
+    background: {_SIDEBAR_H3_BG}; color: {_SIDEBAR_H3_TEXT} !important; padding: 8px 12px !important;
+    border-radius: 8px !important; box-shadow: 0 2px 8px {_SHADOW_CARD} !important;
     font-size: 12px !important; font-weight: 700 !important; text-transform: uppercase !important;
     letter-spacing: .5px !important; border-left: 3px solid #d4af37 !important;
     margin-top: 14px !important; margin-bottom: 8px !important;
-}
+}}
 
 /* Tags dorés */
-div[data-baseweb="tag"],span[data-baseweb="tag"] { background-color: #d4af37 !important; color: #000 !important; border-radius: 4px !important; }
-div[data-baseweb="tag"] *,span[data-baseweb="tag"] * { color: #000 !important; fill: #000 !important; }
+div[data-baseweb="tag"],span[data-baseweb="tag"] {{ background-color: #d4af37 !important; color: #000 !important; border-radius: 4px !important; font-weight: 600 !important; }}
+div[data-baseweb="tag"] *,span[data-baseweb="tag"] * {{ color: #000 !important; fill: #000 !important; }}
 
-/* Bouton principal */
-button[data-testid="baseButton-primary"] { background-color: #1e293b !important; color: #fff !important; border: none !important; }
-button[data-testid="baseButton-primary"]:hover { background-color: #d4af37 !important; color: #000 !important; }
+/* Boutons d'action */
+.stButton > button {{ border-radius: 8px !important; font-weight: 600 !important; padding: 6px 12px !important; transition: all 0.25s ease !important; border: 1px solid {_BORDER_CARD} !important; background-color: {_BG_SIDEBAR} !important; color: {_TEXT_PRIMARY} !important; }}
+.stButton > button:hover {{ border-color: #d4af37 !important; background-color: {_BG_CARD} !important; box-shadow: 0 4px 12px {_HOVER_SHADOW} !important; }}
+button[data-testid="baseButton-primary"] {{ background-color: #1e293b !important; color: #fff !important; border: none !important; }}
+button[data-testid="baseButton-primary"]:hover {{ background-color: #d4af37 !important; color: #000 !important; }}
 
 /* Property cards */
-.property-list { max-height: 68vh; overflow-y: auto; padding-right: 6px; }
-.property-list::-webkit-scrollbar { width: 5px; }
-.property-list::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
-.prop-card {
-    background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 14px;
+.property-list {{ max-height: 68vh; overflow-y: auto; padding-right: 6px; }}
+.property-list::-webkit-scrollbar {{ width: 5px; }}
+.property-list::-webkit-scrollbar-thumb {{ background: {_SCROLLBAR}; border-radius: 3px; }}
+.prop-card {{
+    background: {_BG_CARD}; border: 1px solid {_BORDER_CARD}; border-radius: 10px; padding: 14px;
     margin-bottom: 10px; transition: all .2s ease; font-family: 'Inter', sans-serif;
-}
-.prop-card:hover { box-shadow: 0 6px 18px rgba(0,0,0,.06); border-color: #d4af37; transform: translateY(-1px); }
-.prop-price { font-size: 18px; font-weight: 800; color: #1a1a2e; margin: 0; }
-.prop-price-m2 { font-size: 12px; font-weight: 600; color: #888; margin: 0 0 4px 0; }
-.prop-type { font-size: 13px; font-weight: 700; color: #333; margin: 3px 0 1px 0; }
-.prop-details { font-size: 12px; color: #666; margin: 1px 0; }
-.prop-date { font-size: 10px; color: #aaa; margin-top: 3px; }
-.prop-badge { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 10px; font-weight: 700; color: #fff; margin-right: 5px; }
-.badge-maison { background: #e67e22; } .badge-appart { background: #3498db; }
+}}
+.prop-card:hover {{ box-shadow: 0 6px 18px {_HOVER_SHADOW}; border-color: #d4af37; transform: translateY(-1px); }}
+.prop-price {{ font-size: 18px; font-weight: 800; color: {_TEXT_PRIMARY}; margin: 0; }}
+.prop-price-m2 {{ font-size: 12px; font-weight: 600; color: {_TEXT_SECONDARY}; margin: 0 0 4px 0; }}
+.prop-type {{ font-size: 13px; font-weight: 700; color: {_TEXT_PRIMARY}; margin: 3px 0 1px 0; }}
+.prop-details {{ font-size: 12px; color: {_TEXT_SECONDARY}; margin: 1px 0; }}
+.prop-date {{ font-size: 10px; color: {_TEXT_MUTED}; margin-top: 3px; }}
+.prop-badge {{ display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 10px; font-weight: 700; color: #fff; margin-right: 5px; }}
+.badge-maison {{ background: #e67e22; }} .badge-appart {{ background: #3498db; }}
 
 /* Metric cards */
-.metric-row { display: flex; gap: 12px; margin-bottom: 10px; }
-.metric-card {
-    flex: 1; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+.metric-row {{ display: flex; gap: 12px; margin-bottom: 10px; }}
+.metric-card {{
+    flex: 1; background: {_BG_SIDEBAR}; border: 1px solid {_BORDER_SIDEBAR}; border-radius: 10px;
     padding: 12px 16px; text-align: center;
-}
-.metric-card .val { font-size: 22px; font-weight: 900; color: #1e293b; }
-.metric-card .lbl { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+}}
+.metric-card .val {{ font-size: 22px; font-weight: 900; color: {_TEXT_PRIMARY}; }}
+.metric-card .lbl {{ font-size: 11px; font-weight: 600; color: {_TEXT_SECONDARY}; text-transform: uppercase; letter-spacing: .5px; }}
 
 /* Chart card */
-.chart-card {
-    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
-    padding: 14px 18px; box-shadow: 0 2px 10px rgba(0,0,0,.03);
+.chart-card {{
+    background: {_BG_CARD}; border: 1px solid {_BORDER_CARD}; border-radius: 10px;
+    padding: 14px 18px; box-shadow: 0 2px 10px {_SHADOW_CARD};
     border-left: 4px solid #d4af37; margin-bottom: 12px;
-}
-.chart-title { font-size: 16px; font-weight: 800; color: #0f172a; margin: 0 0 4px 0; }
-.chart-subtitle { font-size: 12px; color: #64748b; margin: 0; line-height: 1.3; }
+}}
+.chart-title {{ font-size: 16px; font-weight: 800; color: {_TEXT_PRIMARY}; margin: 0 0 4px 0; }}
+.chart-subtitle {{ font-size: 12px; color: {_TEXT_SECONDARY}; margin: 0; line-height: 1.3; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -141,7 +177,6 @@ def price_color(prix_m2, seuil_bas, seuil_haut):
     if prix_m2 < seuil_bas: return PRICE_COLORS[0]
     elif prix_m2 < seuil_haut: return PRICE_COLORS[1]
     else: return PRICE_COLORS[2]
-
 
 def _make_building_polygon(lon, lat, type_local="Appartement", seed=None):
     rng = random.Random(seed) if seed is not None else random.Random(int(abs(lon * 1e6) + abs(lat * 1e6)))
@@ -168,14 +203,12 @@ if not os.path.exists(DB_PATH):
 
 db_mtime = os.path.getmtime(DB_PATH)
 
-
 @st.cache_data(show_spinner=False)
 def get_depts(_mtime):
     con = duckdb.connect(DB_PATH, read_only=True)
     df = con.execute("SELECT DISTINCT SUBSTRING(CAST(code_insee AS VARCHAR),1,2) AS d FROM fait_transactions ORDER BY d").df()
     con.close()
     return df["d"].tolist()
-
 
 @st.cache_data(show_spinner=False)
 def get_cities(dept, _mtime):
@@ -189,7 +222,6 @@ def get_cities(dept, _mtime):
     """).df()
     con.close()
     return df["nom_commune"].tolist()
-
 
 @st.cache_data(show_spinner="Chargement des données…")
 def load_city_data(dept, city, _mtime):
@@ -229,7 +261,6 @@ def load_city_data(dept, city, _mtime):
     seuil_haut = float(pm2.quantile(0.66)) if len(pm2) > 0 else 4500.0
 
     df["color_prix"] = df["prix_m2"].apply(lambda x: price_color(x, seuil_bas, seuil_haut))
-    df["color_type"] = df["type_local"].map({"Maison": [230, 126, 34, 200], "Appartement": [52, 152, 219, 200]})
 
     polys = []
     for row in df.itertuples():
@@ -249,12 +280,11 @@ def load_city_data(dept, city, _mtime):
 
     return df, dpe, transport, seuil_bas, seuil_haut
 
-
 # ---------------------------------------------------------------------------
 # 5. SIDEBAR
 # ---------------------------------------------------------------------------
 st.sidebar.markdown("### ⚙️ Administration")
-if st.sidebar.button("Mise à jour des départements", width="stretch", type="primary"):
+if st.sidebar.button("Mise à jour des données", width="stretch", type="primary"):
     st.switch_page("pages/selection_departements.py")
 
 st.sidebar.markdown("---")
@@ -264,7 +294,6 @@ available_depts = get_depts(db_mtime)
 dept_options = [f"{d} – {DEPT_NAMES.get(d, d)}" for d in available_depts]
 dept_to_code = {f"{d} – {DEPT_NAMES.get(d, d)}": d for d in available_depts}
 
-# Défaut : 44 si disponible
 default_idx = next((i for i, d in enumerate(available_depts) if d == "44"), 0)
 selected_dept_label = st.sidebar.selectbox("Département", dept_options, index=default_idx)
 selected_dept = dept_to_code[selected_dept_label]
@@ -277,7 +306,7 @@ if not selected_city:
     st.warning("Aucune commune trouvée pour ce département.")
     st.stop()
 
-# Chargement des données
+# Chargement
 df_dvf, df_dpe, df_transport, seuil_bas, seuil_haut = load_city_data(selected_dept, selected_city, db_mtime)
 
 st.sidebar.markdown("---")
@@ -294,15 +323,30 @@ surf_max = col_s2.number_input("Surface max", 10, 400, 250, 5)
 max_points = st.sidebar.slider("Points sur la carte", 10, 500, 150, 10)
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🎨 Affichage")
-map_style_name = st.sidebar.selectbox("Fond de carte", ["Coloré", "Clair", "Sombre"], index=0)
+st.sidebar.markdown("### 🎨 Apparence")
+
+if st.sidebar.button("Mode Sombre" if not is_dark else "Mode Clair", use_container_width=True):
+    st.session_state.dark_mode = not st.session_state.dark_mode
+    st.rerun()
+
+map_style_name = st.sidebar.selectbox("Fond de carte", ["Coloré", "Clair", "Sombre"], index=0 if not is_dark else 2)
 MAP_STYLES = {
     "Sombre": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
     "Clair": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
     "Coloré": "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
 }
 map_style = MAP_STYLES[map_style_name]
-show_transport = st.sidebar.checkbox("Afficher les stations de transport", value=False)
+show_transport = st.sidebar.checkbox("Afficher les transports", value=False)
+
+chart_theme_name = st.sidebar.selectbox("Couleurs Graphiques", ["Bleu & Vert", "Doré & Bronze", "Rouge & Corail", "Violet & Rose"], index=0)
+CHART_THEMES = {
+    "Bleu & Vert": {"Appartement": "#3498db", "Maison": "#2ecc71"},
+    "Doré & Bronze": {"Appartement": "#d4af37", "Maison": "#a05a2c"},
+    "Rouge & Corail": {"Appartement": "#e74c3c", "Maison": "#e67e22"},
+    "Violet & Rose": {"Appartement": "#9b59b6", "Maison": "#e84393"}
+}
+chart_theme = CHART_THEMES[chart_theme_name]
+df_dvf["color_type"] = df_dvf["type_local"].map({"Maison": chart_theme["Maison"], "Appartement": chart_theme["Appartement"]})
 
 # ---------------------------------------------------------------------------
 # 6. FILTRAGE
@@ -320,7 +364,6 @@ dpe_f = df_dpe[
 nb_dvf = len(df_f)
 nb_dpe = len(dpe_f)
 
-# Centre de la carte
 if nb_dvf > 0:
     c_lat, c_lon = df_f["lat"].mean(), df_f["lon"].mean()
     lat_r = df_f["lat"].max() - df_f["lat"].min()
@@ -337,10 +380,10 @@ surf_med = df_f["surface_m2"].median() if nb_dvf > 0 else 0
 
 st.markdown(f"""
 <div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;'>
-    <div style='font-size:22px;font-weight:900;color:#1e293b;'>🏡 {selected_city}
-        <span style='font-size:13px;font-weight:500;color:#64748b;margin-left:8px;'>{DEPT_NAMES.get(selected_dept, selected_dept)} ({selected_dept})</span>
+    <div style='font-size:22px;font-weight:900;color:{_TEXT_PRIMARY};'>🏡 {selected_city}
+        <span style='font-size:13px;font-weight:500;color:{_TEXT_SECONDARY};margin-left:8px;'>{DEPT_NAMES.get(selected_dept, selected_dept)} ({selected_dept})</span>
     </div>
-    <div style='font-size:12px;color:#94a3b8;'>Observatoire Foncier · SAE-601</div>
+    <div style='font-size:12px;color:{_TEXT_MUTED};'>Observatoire Foncier · SAE-601</div>
 </div>
 <div class='metric-row'>
     <div class='metric-card'><div class='val'>{nb_dvf:,}</div><div class='lbl'>Transactions</div></div>
@@ -357,7 +400,7 @@ st.markdown(f"""
 tab_map, tab_dpe, tab_stats, tab_data, tab_analyse = st.tabs(["🗺️ Carte des Transactions", "📊 Analyse DPE", "📈 Statistiques", "📋 Données", "🔍 Analyse & Estimation"])
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TAB 1 : CARTE DES TRANSACTIONS
+# TAB 1 : CARTE
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_map:
     col_list, col_carte = st.columns([2, 3], gap="medium")
@@ -400,7 +443,7 @@ with tab_map:
         )
         layer_text = pdk.Layer(
             "TextLayer", data=df_f, get_position="[lon, lat]",
-            get_text="price_label", get_size=11, get_color=[30,30,30,220],
+            get_text="price_label", get_size=11, get_color=[30,30,30,220] if not is_dark else [220,220,220,220],
             get_alignment_baseline="'bottom'", get_pixel_offset="[0, -14]",
             font_weight=700, pickable=False,
         )
@@ -428,24 +471,6 @@ with tab_map:
             "style": {"backgroundColor": "transparent", "border": "none"},
         }
 
-        # Légende prix
-        st.markdown(f"""
-        <div style='display:flex;gap:16px;justify-content:center;font-size:12px;font-weight:700;margin-bottom:6px;font-family:Inter,sans-serif;color:#333;'>
-            <div style='display:flex;align-items:center;gap:5px;'>
-                <span style='width:10px;height:10px;background:rgb(140,140,140);border-radius:50%;display:inline-block;'></span>
-                &lt; {seuil_bas:,.0f} €/m²
-            </div>
-            <div style='display:flex;align-items:center;gap:5px;'>
-                <span style='width:10px;height:10px;background:rgb(230,190,10);border-radius:50%;display:inline-block;'></span>
-                {seuil_bas:,.0f} – {seuil_haut:,.0f} €/m²
-            </div>
-            <div style='display:flex;align-items:center;gap:5px;'>
-                <span style='width:10px;height:10px;background:rgb(220,53,69);border-radius:50%;display:inline-block;'></span>
-                &gt; {seuil_haut:,.0f} €/m²
-            </div>
-        </div>
-        """.replace(",", " "), unsafe_allow_html=True)
-
         st.pydeck_chart(pdk.Deck(
             map_style=map_style, initial_view_state=VS,
             layers=[layer_markers, layer_text, transport_layer],
@@ -453,31 +478,16 @@ with tab_map:
         ), width="stretch")
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TAB 2 : ANALYSE DPE
+# TAB 2 : DPE
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_dpe:
     if nb_dpe == 0:
         st.info("Aucun diagnostic DPE disponible pour cette commune.")
     else:
         VS_DPE = pdk.ViewState(latitude=c_lat, longitude=c_lon, zoom=zoom, pitch=0)
-        tooltip_dpe = {
-            "html": (
-                "<div style='font-family:Inter,sans-serif;padding:10px;background:rgba(15,20,30,.95);"
-                "border-radius:8px;color:#fff;box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:240px;'>"
-                "<div style='font-size:10px;text-transform:uppercase;color:#7fa5c8;font-weight:700;'>DPE</div>"
-                "<div style='font-size:13px;font-weight:800;color:#2ecc71;margin:4px 0;'>{adresse_fmt}</div>"
-                "<div style='font-size:12px;'>Type : <b>{type_batiment}</b></div>"
-                "<div style='font-size:12px;'>Surface : <b>{surface_fmt}</b></div>"
-                "<div style='font-size:14px;font-weight:900;color:#f1c40f;margin-top:4px;'>DPE {etiquette_dpe}</div>"
-                "</div>"
-            ),
-            "style": {"backgroundColor": "transparent", "border": "none"},
-        }
-
         col_dpe1, col_dpe2 = st.columns([1, 2], gap="medium")
 
         with col_dpe1:
-            # Répartition DPE
             dpe_counts = dpe_f["etiquette_dpe"].value_counts().reindex(["A","B","C","D","E","F","G"]).fillna(0)
             hex_colors = {"A":"#27ae60","B":"#2ecc71","C":"#a4c400","D":"#f1c40f","E":"#e67e22","F":"#d35400","G":"#c0392b"}
             fig_dpe = go.Figure(go.Bar(
@@ -486,16 +496,15 @@ with tab_dpe:
                 text=dpe_counts.values.astype(int), textposition="auto",
             ))
             fig_dpe.update_layout(
-                title=dict(text=f"Répartition DPE – {selected_city}", font=dict(size=14, color="#1e293b")),
+                title=dict(text=f"Répartition DPE", font=dict(size=14, color=_TEXT_PRIMARY)),
                 margin=dict(l=30, r=10, t=40, b=30), height=350,
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                xaxis=dict(showgrid=False, tickfont=dict(color="#64748b")),
-                yaxis=dict(showgrid=True, gridcolor="#e2e8f0", tickfont=dict(color="#64748b")),
+                xaxis=dict(showgrid=False, tickfont=dict(color=_CHART_TEXT)),
+                yaxis=dict(showgrid=True, gridcolor=_CHART_GRID, tickfont=dict(color=_CHART_TEXT)),
             )
             st.plotly_chart(fig_dpe, width="stretch")
 
         with col_dpe2:
-            # Carte DPE
             layer_dpe_heat = pdk.Layer(
                 "HeatmapLayer", data=dpe_f.dropna(subset=["dpe_score"]),
                 get_position="[lon, lat]", get_weight="dpe_score",
@@ -510,11 +519,11 @@ with tab_dpe:
             )
             st.pydeck_chart(pdk.Deck(
                 map_style=map_style, initial_view_state=VS_DPE,
-                layers=[layer_dpe_heat, layer_dpe_dots], tooltip=tooltip_dpe,
+                layers=[layer_dpe_heat, layer_dpe_dots],
             ), width="stretch")
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TAB 3 : STATISTIQUES
+# TAB 3 : STATS
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_stats:
     if nb_dvf == 0:
@@ -523,228 +532,206 @@ with tab_stats:
         col_s1, col_s2 = st.columns(2, gap="large")
 
         with col_s1:
-            # Distribution des prix/m²
             pm2_data = df_f["prix_m2"].dropna()
             if len(pm2_data) > 0:
                 fig_hist = go.Figure(go.Histogram(
                     x=pm2_data, nbinsx=30,
-                    marker_color="#3498db", marker_line_color="#2980b9", marker_line_width=1,
+                    marker_color=chart_theme["Appartement"], marker_line_width=1,
                 ))
                 fig_hist.update_layout(
-                    title=dict(text="Distribution des prix au m²", font=dict(size=14, color="#1e293b")),
+                    title=dict(text="Distribution des prix au m²", font=dict(size=14, color=_TEXT_PRIMARY)),
                     margin=dict(l=40, r=10, t=40, b=30), height=320,
                     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    xaxis=dict(title="€/m²", showgrid=False, tickfont=dict(color="#64748b")),
-                    yaxis=dict(title="Nb transactions", showgrid=True, gridcolor="#e2e8f0", tickfont=dict(color="#64748b")),
+                    xaxis=dict(title="€/m²", showgrid=False, tickfont=dict(color=_CHART_TEXT)),
+                    yaxis=dict(title="Nb transactions", showgrid=True, gridcolor=_CHART_GRID, tickfont=dict(color=_CHART_TEXT)),
                 )
                 st.plotly_chart(fig_hist, width="stretch")
 
         with col_s2:
-            # Répartition Maison / Appartement
             type_counts = df_f["type_local"].value_counts()
             if len(type_counts) > 0:
                 fig_type = go.Figure(go.Pie(
                     labels=type_counts.index, values=type_counts.values,
-                    marker_colors=["#3498db", "#e67e22", "#2ecc71", "#9b59b6"],
+                    marker_colors=[chart_theme.get(t, "#9b59b6") for t in type_counts.index],
                     hole=0.45, textinfo="label+percent",
                     textfont=dict(size=13, color="#1e293b"),
                 ))
                 fig_type.update_layout(
-                    title=dict(text="Répartition par type de bien", font=dict(size=14, color="#1e293b")),
+                    title=dict(text="Répartition par type de bien", font=dict(size=14, color=_TEXT_PRIMARY)),
                     margin=dict(l=10, r=10, t=40, b=10), height=320,
                     paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
                 )
                 st.plotly_chart(fig_type, width="stretch")
 
-        col_s3, col_s4 = st.columns(2, gap="large")
-
-        with col_s3:
-            # Prix médian par type
-            med_by_type = df_f.groupby("type_local")["prix_m2"].median().sort_values()
-            if len(med_by_type) > 0:
-                fig_med = go.Figure(go.Bar(
-                    x=med_by_type.index, y=med_by_type.values,
-                    marker_color=["#e67e22" if t == "Maison" else "#3498db" for t in med_by_type.index],
-                    text=[f"{v:,.0f}".replace(",", " ") for v in med_by_type.values], textposition="auto",
-                ))
-                fig_med.update_layout(
-                    title=dict(text="Prix médian/m² par type", font=dict(size=14, color="#1e293b")),
-                    margin=dict(l=40, r=10, t=40, b=30), height=280,
-                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    xaxis=dict(showgrid=False, tickfont=dict(color="#64748b")),
-                    yaxis=dict(showgrid=True, gridcolor="#e2e8f0", ticksuffix=" €/m²", tickfont=dict(color="#64748b")),
-                )
-                st.plotly_chart(fig_med, width="stretch")
-
-        with col_s4:
-            # Distribution nb pièces
-            pieces_data = df_f["nb_pieces"].dropna()
-            if len(pieces_data) > 0:
-                pieces_counts = pieces_data.astype(int).clip(upper=6).value_counts().sort_index()
-                labels = [f"{p} p." if p < 6 else "6+ p." for p in pieces_counts.index]
-                fig_pcs = go.Figure(go.Bar(
-                    x=labels, y=pieces_counts.values,
-                    marker_color="#2ecc71",
-                    text=pieces_counts.values, textposition="auto",
-                ))
-                fig_pcs.update_layout(
-                    title=dict(text="Nombre de pièces", font=dict(size=14, color="#1e293b")),
-                    margin=dict(l=40, r=10, t=40, b=30), height=280,
-                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    xaxis=dict(showgrid=False, tickfont=dict(color="#64748b")),
-                    yaxis=dict(showgrid=True, gridcolor="#e2e8f0", tickfont=dict(color="#64748b")),
-                )
-                st.plotly_chart(fig_pcs, width="stretch")
-
 # ═══════════════════════════════════════════════════════════════════════════
-# TAB 4 : DONNÉES BRUTES
+# TAB 4 : DATA
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_data:
     tab_d1, tab_d2 = st.tabs(["Transactions DVF", "Diagnostics DPE"])
-
     with tab_d1:
-        cols_dvf = ["valeur_fmt", "type_local", "surface_m2", "nb_pieces", "prix_m2_fmt", "date_mutation"]
-        available_cols = [c for c in cols_dvf if c in df_f.columns]
-        st.dataframe(
-            df_f[available_cols].rename(columns={
-                "valeur_fmt": "Prix", "type_local": "Type", "surface_m2": "Surface (m²)",
-                "nb_pieces": "Pièces", "prix_m2_fmt": "Prix/m²", "date_mutation": "Date",
-            }).head(300),
-            width="stretch", hide_index=True,
-        )
-
+        st.dataframe(df_f[["valeur_fmt", "type_local", "surface_m2", "nb_pieces", "prix_m2_fmt", "date_mutation", "adresse_normalisee"]].head(300), width="stretch", hide_index=True)
     with tab_d2:
         if nb_dpe > 0:
-            cols_dpe = ["adresse_fmt", "etiquette_dpe", "surface_fmt", "type_batiment"]
-            available_cols_dpe = [c for c in cols_dpe if c in dpe_f.columns]
-            st.dataframe(
-                dpe_f[available_cols_dpe].rename(columns={
-                    "adresse_fmt": "Commune", "etiquette_dpe": "DPE",
-                    "surface_fmt": "Surface", "type_batiment": "Type",
-                }).head(300),
-                width="stretch", hide_index=True,
-            )
+            st.dataframe(dpe_f[["etiquette_dpe", "surface_fmt", "type_batiment"]].head(300), width="stretch", hide_index=True)
         else:
-            st.info("Aucun diagnostic DPE disponible.")
+            st.info("Aucun DPE")
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TAB 5 : ANALYSE & ESTIMATION
+# TAB 5 : ANALYSE & ESTIMATION (SIMULATEUR + FICHE ADRESSE)
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_analyse:
-    st.markdown("### Évalue ton bien immobilier")
+    tab_sim, tab_addr = st.tabs(["💡 Simulateur Manuel", "📍 Fiche Adresse Détaillée"])
     
-    col_form, col_res = st.columns([1, 2], gap="large")
-    
-    with col_form:
-        st.markdown("<div class='chart-card' style='margin-bottom:0;'>", unsafe_allow_html=True)
-        st.markdown("<p class='chart-title'>Caractéristiques du bien</p>", unsafe_allow_html=True)
-        st.markdown("<p class='chart-subtitle'>Remplis les informations pour comparer ton estimation au marché local.</p><br>", unsafe_allow_html=True)
-        
-        sim_prix = st.number_input("Prix de vente estimé (€)*", min_value=10000, max_value=10000000, value=250000, step=10000)
-        sim_type = st.selectbox("Type de bien", ["Appartement", "Maison", "Indifférent"], index=0)
-        
-        col_f1, col_f2 = st.columns(2)
-        sim_surf = col_f1.number_input("Surface (m²)", min_value=10, max_value=500, value=60)
-        sim_surf_tol = col_f2.number_input("Tolérance surface (± %)", min_value=0, max_value=50, value=15)
-        
-        col_f3, col_f4 = st.columns(2)
-        sim_pieces = col_f3.number_input("Nb pièces", min_value=1, max_value=20, value=3)
-        sim_pieces_tol = col_f4.number_input("Tolérance pièces (±)", min_value=0, max_value=5, value=1)
-        
-        sim_mot_cle = st.text_input("Mot-clé adresse (Optionnel, ex: Zola, Doulon)", "")
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-    with col_res:
-        # Filtrage
-        df_sim = df_dvf.copy()
-        
-        if sim_type != "Indifférent":
-            df_sim = df_sim[df_sim["type_local"] == sim_type]
+    # --- SOUS-ONGLET 1 : Simulateur ---
+    with tab_sim:
+        col_form, col_res = st.columns([1, 2], gap="large")
+        with col_form:
+            st.markdown("<div class='chart-card' style='margin-bottom:0;'>", unsafe_allow_html=True)
+            st.markdown(f"<p class='chart-title'>Caractéristiques du bien</p>", unsafe_allow_html=True)
+            st.markdown(f"<p class='chart-subtitle'>Remplis les informations pour comparer au marché local.</p><br>", unsafe_allow_html=True)
+            sim_prix = st.number_input("Prix de vente estimé (€)*", min_value=10000, max_value=10000000, value=250000, step=10000)
+            sim_type = st.selectbox("Type de bien", ["Appartement", "Maison", "Indifférent"], index=0)
+            col_f1, col_f2 = st.columns(2)
+            sim_surf = col_f1.number_input("Surface (m²)", min_value=10, max_value=500, value=60)
+            sim_surf_tol = col_f2.number_input("Tolérance surface (± %)", min_value=0, max_value=50, value=15)
+            col_f3, col_f4 = st.columns(2)
+            sim_pieces = col_f3.number_input("Nb pièces", min_value=1, max_value=20, value=3)
+            sim_pieces_tol = col_f4.number_input("Tolérance pièces (±)", min_value=0, max_value=5, value=1)
+            sim_mot_cle = st.text_input("Mot-clé adresse (Optionnel)", "")
+            st.markdown("</div>", unsafe_allow_html=True)
             
-        surf_min_sim = sim_surf * (1 - sim_surf_tol / 100.0)
-        surf_max_sim = sim_surf * (1 + sim_surf_tol / 100.0)
-        df_sim = df_sim[df_sim["surface_m2"].between(surf_min_sim, surf_max_sim)]
-        
-        pieces_min = sim_pieces - sim_pieces_tol
-        pieces_max = sim_pieces + sim_pieces_tol
-        df_sim = df_sim[df_sim["nb_pieces"].between(pieces_min, pieces_max)]
-        
-        if sim_mot_cle.strip():
-            df_sim = df_sim[df_sim["adresse_normalisee"].str.contains(sim_mot_cle, case=False, na=False)]
-        
-        nb_sim = len(df_sim)
-        
-        if nb_sim < 5:
-            st.warning(f"⚠️ **Échantillon trop faible ({nb_sim} ventes).** Élargis tes critères de recherche (tolérance de surface, pièces, ou retire le mot-clé) pour obtenir une estimation fiable.")
-        else:
-            med_sim_pm2 = df_sim["prix_m2"].median()
-            min_sim_pm2 = df_sim["prix_m2"].min()
-            max_sim_pm2 = df_sim["prix_m2"].quantile(0.95) # Exclure les vrais extrêmes pour la jauge
+        with col_res:
+            df_sim = df_dvf.copy()
+            if sim_type != "Indifférent": df_sim = df_sim[df_sim["type_local"] == sim_type]
+            df_sim = df_sim[df_sim["surface_m2"].between(sim_surf * (1 - sim_surf_tol / 100.0), sim_surf * (1 + sim_surf_tol / 100.0))]
+            df_sim = df_sim[df_sim["nb_pieces"].between(sim_pieces - sim_pieces_tol, sim_pieces + sim_pieces_tol)]
+            if sim_mot_cle.strip(): df_sim = df_sim[df_sim["adresse_normalisee"].str.contains(sim_mot_cle, case=False, na=False)]
             
-            sim_pm2 = sim_prix / sim_surf if sim_surf > 0 else 0
-            
-            diff_pct = ((sim_pm2 - med_sim_pm2) / med_sim_pm2) * 100 if med_sim_pm2 > 0 else 0
-            
-            if diff_pct > 5:
-                status_color = "#e74c3c" # Rouge (trop cher)
-                status_text = f"Ton estimation est **{diff_pct:.1f}% plus élevée** que la médiane du marché ({med_sim_pm2:,.0f} €/m²) pour des biens similaires."
-            elif diff_pct < -5:
-                status_color = "#2ecc71" # Vert (bonne affaire)
-                status_text = f"Ton estimation est **{abs(diff_pct):.1f}% moins élevée** que la médiane du marché ({med_sim_pm2:,.0f} €/m²) pour des biens similaires."
+            nb_sim = len(df_sim)
+            if nb_sim < 5:
+                st.warning(f"⚠️ Échantillon trop faible ({nb_sim} ventes). Élargis tes critères.")
             else:
-                status_color = "#f1c40f" # Jaune (dans la norme)
-                status_text = f"Ton estimation est **parfaitement alignée** avec la médiane du marché ({med_sim_pm2:,.0f} €/m²) pour des biens similaires."
-            
-            st.markdown(f"""
-            <div class='chart-card' style='border-left-color: {status_color};'>
-                <p class='chart-title' style='color: {status_color};'>Résultat de l'analyse</p>
-                <p class='chart-subtitle'>{status_text}</p>
-                <p style='font-size: 13px; color: #64748b; margin-top: 5px;'>Basé sur <b>{nb_sim}</b> transactions historiques correspondant à tes critères.</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Gauge chart Plotly
-            fig_gauge = go.Figure(go.Indicator(
-                mode = "gauge+number+delta",
-                value = sim_pm2,
-                title = {'text': "Prix au m² simulé (€/m²)", 'font': {'size': 14, 'color': '#1e293b'}},
-                delta = {'reference': med_sim_pm2, 'increasing': {'color': "#e74c3c"}, 'decreasing': {'color': "#2ecc71"}},
-                gauge = {
-                    'axis': {'range': [max(0, min_sim_pm2 - 500), max_sim_pm2 + 1000], 'tickwidth': 1, 'tickcolor': "darkblue"},
-                    'bar': {'color': status_color},
-                    'bgcolor': "white",
-                    'borderwidth': 2,
-                    'bordercolor': "gray",
-                    'steps': [
-                        {'range': [0, med_sim_pm2 * 0.95], 'color': "rgba(46, 204, 113, 0.2)"},
-                        {'range': [med_sim_pm2 * 0.95, med_sim_pm2 * 1.05], 'color': "rgba(241, 196, 15, 0.2)"},
-                        {'range': [med_sim_pm2 * 1.05, max_sim_pm2 + 1000], 'color': "rgba(231, 76, 60, 0.2)"}],
-                    'threshold': {
-                        'line': {'color': "black", 'width': 3},
-                        'thickness': 0.75,
-                        'value': med_sim_pm2}
-                }
-            ))
-            
-            fig_gauge.update_layout(height=280, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig_gauge, width="stretch")
-            
-            with st.expander("🗺️ Voir les biens similaires sur la carte"):
-                # Carte pydeck des biens similaires
-                c_lat_sim = df_sim["lat"].mean()
-                c_lon_sim = df_sim["lon"].mean()
-                VS_SIM = pdk.ViewState(latitude=c_lat_sim, longitude=c_lon_sim, zoom=13, pitch=0)
+                med_sim_pm2 = df_sim["prix_m2"].median()
+                sim_pm2 = sim_prix / sim_surf if sim_surf > 0 else 0
+                diff_pct = ((sim_pm2 - med_sim_pm2) / med_sim_pm2) * 100 if med_sim_pm2 > 0 else 0
                 
-                layer_sim = pdk.Layer(
-                    "ScatterplotLayer", data=df_sim, get_position="[lon, lat]",
-                    get_radius=50, radius_min_pixels=5, radius_max_pixels=15,
-                    get_fill_color=[52, 152, 219, 200], get_line_color=[255,255,255,200],
-                    line_width_min_pixels=1, pickable=True, auto_highlight=True,
-                )
+                if diff_pct > 5:
+                    scol, stxt = "#e74c3c", f"Ton estimation est **{diff_pct:.1f}% plus élevée** que la médiane ({med_sim_pm2:,.0f} €/m²)."
+                elif diff_pct < -5:
+                    scol, stxt = "#2ecc71", f"Ton estimation est **{abs(diff_pct):.1f}% moins élevée** que la médiane ({med_sim_pm2:,.0f} €/m²)."
+                else:
+                    scol, stxt = "#f1c40f", f"Ton estimation est **parfaitement alignée** avec la médiane ({med_sim_pm2:,.0f} €/m²)."
                 
-                st.pydeck_chart(pdk.Deck(
-                    map_style=map_style, initial_view_state=VS_SIM,
-                    layers=[layer_sim],
-                    tooltip={"text": "{adresse_normalisee}\n{valeur_fmt} | {surface_m2} m² | {prix_m2_fmt}"}
-                ), width="stretch")
+                st.markdown(f"""<div class='chart-card' style='border-left-color: {scol}; padding:15px;'><p class='chart-title' style='color:{scol};'>Analyse</p><p class='chart-subtitle'>{stxt}</p><p style='font-size:11px;color:{_TEXT_MUTED};'>Basé sur {nb_sim} transactions.</p></div>""", unsafe_allow_html=True)
+                
+                fig_gauge = go.Figure(go.Indicator(
+                    mode="gauge+number+delta", value=sim_pm2,
+                    delta={'reference': med_sim_pm2, 'increasing': {'color': "#e74c3c"}, 'decreasing': {'color': "#2ecc71"}},
+                    gauge={'axis': {'range': [0, max(sim_pm2, med_sim_pm2)*1.5]}, 'bar': {'color': scol}, 'steps': [{'range':[0, med_sim_pm2*0.95], 'color':"rgba(46,204,113,0.2)"}, {'range':[med_sim_pm2*0.95, med_sim_pm2*1.05], 'color':"rgba(241,196,15,0.2)"}, {'range':[med_sim_pm2*1.05, max(sim_pm2, med_sim_pm2)*1.5], 'color':"rgba(231,76,60,0.2)"}], 'threshold': {'line': {'color': "black", 'width': 3}, 'value': med_sim_pm2}}
+                ))
+                fig_gauge.update_layout(height=200, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig_gauge, width="stretch")
+    
+    # --- SOUS-ONGLET 2 : Fiche Adresse ---
+    with tab_addr:
+        addresses = sorted(df_dvf["adresse_normalisee"].dropna().unique().tolist())
+        selected_addr = st.selectbox("Rechercher une adresse exacte :", [""] + addresses, index=0)
+        
+        if selected_addr != "":
+            rows_dvf = df_dvf[df_dvf["adresse_normalisee"] == selected_addr]
+            lat = rows_dvf.iloc[0]["lat"] if not rows_dvf.empty else 47.2184
+            lon = rows_dvf.iloc[0]["lon"] if not rows_dvf.empty else -1.5536
+            
+            # 1. Calculs des voisins et médiane
+            df_others = df_dvf[df_dvf["adresse_normalisee"] != selected_addr].copy()
+            df_others["dist_m"] = np.sqrt(((df_others["lat"] - lat)*111.32)**2 + ((df_others["lon"] - lon)*80.0)**2) * 1000.0
+            closest_15 = df_others.sort_values("dist_m").head(15)
+            median_local_prix_m2 = closest_15["prix_m2"].median() if not closest_15.empty else df_dvf["prix_m2"].median()
+            median_nantes_prix_m2 = df_dvf["prix_m2"].median()
+            
+            b_type = rows_dvf.iloc[0]["type_local"] if not rows_dvf.empty else "Appartement"
+            building_prix_m2 = rows_dvf.iloc[0]["prix_m2"] if not rows_dvf.empty else median_local_prix_m2
+            
+            # 2. DPE (le plus proche si pas exact)
+            distances_dpe = np.sqrt(((df_dpe["lat"] - lat)*111.32)**2 + ((df_dpe["lon"] - lon)*80.0)**2) * 1000.0
+            closest_dpe_idx = distances_dpe.idxmin() if not distances_dpe.empty else None
+            dpe_record = df_dpe.loc[closest_dpe_idx] if closest_dpe_idx is not None else {}
+            dpe_score = dpe_record.get("dpe_score", 4)
+            points_dpe = ((dpe_score - 1) / 6.0) * 50.0
+            
+            # 3. Transport (le plus proche)
+            if not df_transport.empty:
+                distances_trans = np.sqrt(((df_transport["lat"] - lat)*111.32)**2 + ((df_transport["lon"] - lon)*80.0)**2) * 1000.0
+                min_dist_trans = distances_trans.min()
+                points_trans = 50.0 if min_dist_trans <= 100.0 else max(0.0, 50.0 * (1.0 - (min_dist_trans - 100.0) / 900.0))
+            else:
+                points_trans = 0.0
+                min_dist_trans = 9999
+            
+            eco_score = float(np.clip(points_dpe + points_trans, 0.0, 100.0))
+            verdict_color = "#009E5F" if eco_score >= 80 else "#BACF11" if eco_score >= 60 else "#FBBD08" if eco_score >= 40 else "#F47D22"
+            
+            # Layout compact
+            col_a1, col_a2, col_a3 = st.columns([1.5, 1, 1], gap="medium")
+            
+            with col_a1:
+                # Avis d'équité
+                diff_ratio = (building_prix_m2 - median_local_prix_m2) / median_local_prix_m2
+                if diff_ratio <= -0.10:
+                    v_txt, v_col = "Excellente opportunité", "#2ecc71"
+                elif diff_ratio <= 0.05:
+                    v_txt, v_col = "Prix cohérent", "#3498db"
+                else:
+                    v_txt, v_col = "Prix élevé", "#e74c3c"
+                    
+                st.markdown(f"<div class='chart-card' style='border-left-color: {v_col}; height:100%;'>"
+                            f"<p class='chart-title' style='color:{v_col};'>{v_txt}</p>"
+                            f"<p class='chart-subtitle'>Ce bien est à <b>{building_prix_m2:,.0f} €/m²</b>, soit <b>{diff_ratio*100:+.1f}%</b> par rapport à la médiane de ses 15 plus proches voisins (<b>{median_local_prix_m2:,.0f} €/m²</b>).</p>"
+                            f"</div>".replace(",", " "), unsafe_allow_html=True)
+                            
+            with col_a2:
+                # Eco Score
+                fig_eco = go.Figure(go.Indicator(
+                    mode="gauge+number", value=eco_score,
+                    title={'text': "Éco-Attractivité", 'font': {'size': 13, 'color': _TEXT_PRIMARY}},
+                    number={'font': {'size': 20, 'color': verdict_color}, 'suffix': "/100"},
+                    gauge={'axis': {'range': [0, 100]}, 'bar': {'color': verdict_color}, 'steps': [{'range':[0,40], 'color':"rgba(244,125,34,0.15)"}, {'range':[40,60], 'color':"rgba(251,189,8,0.15)"}, {'range':[60,80], 'color':"rgba(186,207,17,0.15)"}, {'range':[80,100], 'color':"rgba(0,158,95,0.15)"}]}
+                ))
+                fig_eco.update_layout(margin=dict(l=10, r=10, t=30, b=10), height=140, paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig_eco, width="stretch")
+                
+            with col_a3:
+                # Simulateur mini
+                valeur = float(rows_dvf.iloc[0]["valeur_fonciere"]) if not rows_dvf.empty else 200000.0
+                mensualite = (valeur * 0.85) * ((0.037/12)*(1+0.037/12)**240) / ((1+0.037/12)**240 - 1)
+                st.markdown(f"<div class='chart-card' style='height:100%; text-align:center; padding-top:15px;'>"
+                            f"<p style='font-size:11px;color:{_TEXT_SECONDARY};margin:0;text-transform:uppercase;'>Mensualité estimée</p>"
+                            f"<p style='font-size:24px;font-weight:900;color:#d4af37;margin:5px 0;'>{mensualite:,.0f} € / mois</p>"
+                            f"<p style='font-size:10px;color:{_TEXT_MUTED};margin:0;'>Sur 20 ans, taux 3.7%, 15% apport</p>"
+                            f"</div>".replace(",", " "), unsafe_allow_html=True)
+            
+            # Ligne du bas : Radar + Tendance
+            col_b1, col_b2 = st.columns([1, 2], gap="large")
+            with col_b1:
+                score_budget = float(np.clip(100.0 * (median_nantes_prix_m2 / building_prix_m2), 10.0, 100.0))
+                score_espace = 70.0 # fixe arbitraire pour la démo sans surface précise du quartier
+                
+                fig_radar = go.Figure(go.Scatterpolar(
+                    r=[score_budget, points_dpe*2, points_trans*2, score_espace, score_budget],
+                    theta=["Budget", "Confort Énergie", "Accès Transport", "Espace", "Budget"],
+                    fill='toself', fillcolor="rgba(212, 175, 55, 0.25)", line=dict(color="#d4af37")
+                ))
+                fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100], gridcolor=_CHART_GRID, tickfont=dict(size=8, color=_CHART_TEXT)), angularaxis=dict(gridcolor=_CHART_GRID, tickfont=dict(color=_TEXT_PRIMARY, size=10)), bgcolor="rgba(0,0,0,0)"), margin=dict(l=30, r=30, t=20, b=20), height=200, paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig_radar, width="stretch")
+                
+            with col_b2:
+                # Historique local vs global (Mockup des mois)
+                mois = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"]
+                prix_glob = [median_nantes_prix_m2 * (1 + random.uniform(-0.02, 0.02)) for _ in range(12)]
+                prix_loc = [median_local_prix_m2 * (1 + random.uniform(-0.03, 0.03)) for _ in range(12)]
+                
+                fig_trend = go.Figure()
+                fig_trend.add_trace(go.Scatter(x=mois, y=prix_glob, mode='lines', name='Moyenne Ville', line=dict(color='#94a3b8', width=2, dash='dash')))
+                fig_trend.add_trace(go.Scatter(x=mois, y=prix_loc, mode='lines+markers', name='Micro-Quartier', line=dict(color='#d4af37', width=3)))
+                fig_trend.update_layout(margin=dict(l=20, r=20, t=20, b=20), height=200, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis=dict(showgrid=False, tickfont=dict(color=_CHART_TEXT)), yaxis=dict(gridcolor=_CHART_GRID, tickfont=dict(color=_CHART_TEXT)), legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1.0, font=dict(color=_TEXT_PRIMARY, size=10)))
+                st.plotly_chart(fig_trend, width="stretch")
