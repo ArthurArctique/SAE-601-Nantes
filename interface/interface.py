@@ -829,7 +829,7 @@ with col_map:
             layers=[layer_selected, layer_markers, layer_text, transport_layer],
             tooltip=tooltip_map,
         ),
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -1001,7 +1001,7 @@ with tab_t1:
             "type_energie_principale_chauffage": "Énergie chauffage",
             "conso_fmt": "Conso. 5 usages",
         }).head(200),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -1019,7 +1019,7 @@ with tab_t2:
             "prix_m2_fmt": "Prix/m²",
             "date_mutation": "Date vente",
         }).head(200),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -1031,7 +1031,7 @@ with tab_t3:
             "lat": "Latitude",
             "lon": "Longitude",
         }),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -1091,7 +1091,7 @@ fig_prices.update_layout(
         linecolor='#cbd5e1'
     )
 )
-st.plotly_chart(fig_prices, use_container_width=True)
+st.plotly_chart(fig_prices, width="stretch")
 
 # 2. Graphiques Âge du parc et Typologie (2 colonnes)
 col_g1, col_g2 = st.columns(2, gap="large")
@@ -1127,7 +1127,7 @@ with col_g1:
         xaxis=dict(showgrid=False, tickfont=dict(color='#64748b')),
         yaxis=dict(showgrid=True, gridcolor='#e2e8f0', ticksuffix='%', tickfont=dict(color='#64748b'))
     )
-    st.plotly_chart(fig_age, use_container_width=True)
+    st.plotly_chart(fig_age, width="stretch")
 
 with col_g2:
     st.markdown(
@@ -1156,7 +1156,7 @@ with col_g2:
         xaxis=dict(showgrid=False, tickfont=dict(color='#64748b')),
         yaxis=dict(showgrid=True, gridcolor='#e2e8f0', ticksuffix='%', tickfont=dict(color='#64748b'))
     )
-    st.plotly_chart(fig_typo, use_container_width=True)
+    st.plotly_chart(fig_typo, width="stretch")
 
 
 # ---------------------------------------------------------------------------

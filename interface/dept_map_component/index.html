@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: transparent; overflow: hidden; }
+        #map { width: 100%; border-radius: 10px; }
+        .dept-tooltip {
+            background: white;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            color: #1e293b;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <script>
+        // ── Streamlit Component Protocol (manual implementation) ──
+        const Streamlit = {
+            setComponentReady: function() {
+                window.parent.postMessage({
+                    isStreamlitMessage: true,
+                    type: "streamlit:componentReady",
+                    apiVersion: 1
+                }, "*");
+            },
+            setFrameHeight: function(height) {
+                window.parent.postMessage({
+                    isStreamlitMessage: true,
+                    type: "streamlit:setFrameHeight",
+                    height: height || document.body.scrollHeight
+                }, "*");
+            },
+            setComponentValue: function(value) {
+                window.parent.postMessage({
+                    isStreamlitMessage: true,
+                    type: "streamlit:setComponentValue",
+                    value: value
+                }, "*");
+            },
+            RENDER_EVENT: "streamlit:render",
+            events: {
+                _listeners: {},
+                addEventListener: function(event, callback) {
+                    if (!this._listeners[event]) this._listeners[event] = [];
+                    this._listeners[event].push(callback);
+                },
+                _dispatch: function(event, data) {
+                    (this._listeners[event] || []).forEach(function(cb) { cb(data); });
+                }
+            }
+        };
+
+        window.addEventListener("message", function(event) {
+            if (event.data && event.data.type === Streamlit.RENDER_EVENT) {
+                Streamlit.events._dispatch(Streamlit.RENDER_EVENT, {
+                    detail: { args: event.data.args }
+                });
+            }
+        });
+
+        // ── Map State ──
+        let map = null;
+        let geojsonLayer = null;
+        let selectedDepts = new Set();
+
+        function getStyle(code) {
+            const isSelected = selectedDepts.has(code);
+            return {
+                fillColor: isSelected ? '#d4af37' : '#e2e8f0',
+                fillOpacity: isSelected ? 0.55 : 0.2,
+                color: isSelected ? '#92400e' : '#94a3b8',
+                weight: isSelected ? 2.2 : 0.8,
+            };
+        }
+
+        function onRender(event) {
+            const args = event.detail.args;
+            const selected = args.selected || [];
+            const mapHeight = args.map_height || 550;
+
+            selectedDepts = new Set(selected);
+            document.getElementById('map').style.height = mapHeight + 'px';
+
+            if (!map) {
+                // ── FIRST render: create the map (happens once) ──
+                map = L.map('map', {
+                    center: [46.5, 2.5],
+                    zoom: 5,
+                    zoomControl: true,
+                    attributionControl: false,
+                });
+
+                // OSM tiles
+                L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 12,
+                    minZoom: 4,
+                }).addTo(map);
+
+                // Fetch local geojson
+                fetch("departements.geojson")
+                    .then(response => response.json())
+                    .then(geojson => {
+                        geojsonLayer = L.geoJSON(geojson, {
+                            style: function(feature) {
+                                return getStyle(feature.properties.code);
+                            },
+                            onEachFeature: function(feature, layer) {
+                                var code = feature.properties.code;
+                                var nom = feature.properties.nom;
+
+                                layer.bindTooltip('<b>' + code + '</b> — ' + nom, {
+                                    sticky: true,
+                                    className: 'dept-tooltip'
+                                });
+
+                                layer.on('click', function() {
+                                    if (selectedDepts.has(code)) {
+                                        selectedDepts.delete(code);
+                                    } else {
+                                        selectedDepts.add(code);
+                                    }
+                                    // Instant visual update (no Streamlit rerun needed for this)
+                                    geojsonLayer.setStyle(function(f) {
+                                        return getStyle(f.properties.code);
+                                    });
+                                    // Send updated selection back to Streamlit
+                                    Streamlit.setComponentValue(Array.from(selectedDepts).sort());
+                                });
+
+                                layer.on('mouseover', function(e) {
+                                    e.target.setStyle({
+                                        weight: 3,
+                                        fillOpacity: selectedDepts.has(code) ? 0.75 : 0.4,
+                                    });
+                                });
+                                layer.on('mouseout', function(e) {
+                                    e.target.setStyle(getStyle(code));
+                                });
+                            }
+                        }).addTo(map);
+
+                        map.fitBounds(geojsonLayer.getBounds(), { padding: [10, 10] });
+                    })
+                    .catch(err => console.error("Error loading geojson:", err));
+            } else {
+                // ── SUBSEQUENT renders: only update styles (map stays intact!) ──
+                if (geojsonLayer) {
+                    geojsonLayer.setStyle(function(f) {
+                        return getStyle(f.properties.code);
+                    });
+                }
+            }
+
+            Streamlit.setFrameHeight(mapHeight);
+        }
+
+        Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, onRender);
+        Streamlit.setComponentReady();
+        Streamlit.setFrameHeight(550);
+    </script>
+</body>
+</html>

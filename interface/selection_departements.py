@@ -1,10 +1,14 @@
 import streamlit as st
-import json
-import urllib.request
-import ssl
-import pydeck as pdk
+import streamlit.components.v1 as components
+import os
 
-ssl._create_default_https_context = ssl._create_unverified_context
+# Déclaration du composant personnalisé de carte
+parent_dir = os.path.dirname(os.path.abspath(__file__))
+build_dir = os.path.join(parent_dir, "dept_map_component")
+_dept_map_component = components.declare_component("dept_map", path=build_dir)
+
+def dept_map(selected, map_height=550, key=None):
+    return _dept_map_component(selected=selected, map_height=map_height, key=key)
 
 # ---------------------------------------------------------------------------
 # CONFIGURATION DE LA PAGE
@@ -156,14 +160,19 @@ div[data-baseweb="tag"] *, span[data-baseweb="tag"] * {
     padding-left: 8px;
 }
 
+/* Masquer le header Streamlit pour éviter les chevauchements */
+header[data-testid="stHeader"] {
+    display: none !important;
+}
+
 /* Ajustements globaux */
 .block-container {
-    padding-top: 1rem !important; /* Marge modérée pour éviter l'overlap */
+    padding-top: 2rem !important; /* Marge propre sans overlap */
     padding-bottom: 0 !important;
     max-width: 95% !important;
 }
 
-/* Empêche le padding par défaut énorme de pydeck */
+/* Style de l'iframe */
 iframe {
     border-radius: 10px;
 }
@@ -172,16 +181,8 @@ iframe {
 
 
 # ---------------------------------------------------------------------------
-# CHARGEMENT DU GEOJSON DES DÉPARTEMENTS
+# SÉLECTION DES DÉPARTEMENTS
 # ---------------------------------------------------------------------------
-@st.cache_data(show_spinner="Chargement de la carte…")
-def load_geojson():
-    url = "https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements-version-simplifiee.geojson"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    with urllib.request.urlopen(req, timeout=15) as res:
-        return json.loads(res.read().decode('utf-8'))
-
-geojson_data = load_geojson()
 
 # ---------------------------------------------------------------------------
 # SESSION STATE
@@ -242,7 +243,7 @@ with col_controls:
         cols = st.columns(3)
         for idx, (region_name, dept_codes) in enumerate(chunk):
             with cols[idx]:
-                if st.button(region_name, use_container_width=True):
+                if st.button(region_name, width="stretch"):
                     current = set(st.session_state.selected_depts)
                     region_set = set(dept_codes)
                     if region_set.issubset(current):
@@ -254,11 +255,11 @@ with col_controls:
 
     btn_col1, btn_col2 = st.columns(2)
     with btn_col1:
-        if st.button("Tout vider", use_container_width=True):
+        if st.button("Tout vider", width="stretch"):
             st.session_state.selected_depts = []
             st.rerun()
     with btn_col2:
-        if st.button("Tout sélectionner", use_container_width=True):
+        if st.button("Tout sélectionner", width="stretch"):
             st.session_state.selected_depts = sorted(DEPARTEMENTS.keys())
             st.rerun()
 
@@ -273,7 +274,7 @@ with col_controls:
     if st.session_state.selected_depts:
         selected_list = sorted(st.session_state.selected_depts)
         
-        if st.button("🚀 Lancer l'extraction et la mise à jour", use_container_width=True, type="primary"):
+        if st.button("🚀 Lancer l'extraction et la mise à jour", width="stretch", type="primary"):
             import subprocess
             
             with st.status("Mise à jour de la base de données en cours...", expanded=True) as status:
@@ -306,72 +307,21 @@ with col_controls:
         st.info("Sélectionnez au moins un département pour mettre à jour la base.")
 
 # ---------------------------------------------------------------------------
-# CARTE INTERACTIVE PYDECK (colonne droite)
+# CARTE INTERACTIVE (colonne droite - Custom Component)
 # ---------------------------------------------------------------------------
 with col_map:
     st.markdown("<div class='map-container'>", unsafe_allow_html=True)
     
-    # Préparer les features pour PyDeck avec la couleur d'état
-    features = []
-    for f in geojson_data.get("features", []):
-        code = f.get("properties", {}).get("code", "")
-        if code in DEPARTEMENTS:
-            nom = DEPARTEMENTS.get(code, "")
-            is_selected = code in st.session_state.selected_depts
-            
-            feat = {
-                "type": "Feature",
-                "geometry": f["geometry"],
-                "properties": {
-                    "code": code,
-                    "nom": nom,
-                    "fill_color": [212, 175, 55, 180] if is_selected else [226, 232, 240, 80],
-                    "line_color": [17, 24, 39, 255] if is_selected else [148, 163, 184, 255],
-                    "line_width": 2500 if is_selected else 800
-                }
-            }
-            features.append(feat)
-
-    layer = pdk.Layer(
-        "GeoJsonLayer",
-        data={"type": "FeatureCollection", "features": features},
-        pickable=True,
-        stroked=True,
-        filled=True,
-        extruded=False,
-        get_fill_color="properties.fill_color",
-        get_line_color="properties.line_color",
-        get_line_width="properties.line_width",
-        auto_highlight=True,
-        highlight_color=[255, 255, 255, 150]
+    # Appel du composant carte personnalisé
+    map_res = dept_map(
+        selected=st.session_state.selected_depts,
+        map_height=600,
+        key="dept_map"
     )
-
-    view_state = pdk.ViewState(latitude=46.5, longitude=2.5, zoom=4.7, bearing=0, pitch=0)
-
-    deck = pdk.Deck(
-        layers=[layer],
-        initial_view_state=view_state,
-        map_style="light",  # Style vectoriel clair type OSM
-        tooltip={"text": "{nom} ({code})"}
-    )
-
-    # Affichage PyDeck (Très performant, ne recharge pas la vue, gère le clic nativement !)
-    event = st.pydeck_chart(deck, use_container_width=True, height=550, on_select="rerun", selection_mode="multi-object")
-
-    # Si l'utilisateur clique sur la carte (PyDeck renvoie selection.objects sous forme de dict par layer id)
-    if event and hasattr(event, "selection") and event.selection.get("objects"):
-        for layer_id, obj_list in event.selection["objects"].items():
-            if obj_list:
-                # obj_list contient les features cliquées
-                clicked_code = obj_list[0]["properties"]["code"]
-                
-                current = st.session_state.selected_depts
-                if clicked_code in current:
-                    current.remove(clicked_code)
-                else:
-                    current.append(clicked_code)
-                    
-                st.session_state.selected_depts = sorted(current)
-                st.rerun()
+    
+    # Si l'utilisateur clique sur la carte, le composant retourne la nouvelle liste de départements
+    if map_res is not None and map_res != st.session_state.selected_depts:
+        st.session_state.selected_depts = map_res
+        st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
