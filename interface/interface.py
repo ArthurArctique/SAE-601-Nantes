@@ -282,231 +282,114 @@ _transformer = Transformer.from_crs("EPSG:2154", "EPSG:4326", always_xy=True)
 # 2. CHARGEMENT DES DONNÉES
 # ---------------------------------------------------------------------------
 
-@st.cache_data(show_spinner="Chargement des données DPE (Nantes)…")
-def load_dpe():
-    df = pd.read_csv(
-        "c:/projet_2026/data/dpe/dpe-logements-existants-44.csv",
-        usecols=[
-            "etiquette_dpe", "etiquette_ges",
-            "surface_habitable_logement",
-            "adresse_ban",
-            "coordonnee_cartographique_x_ban",
-            "coordonnee_cartographique_y_ban",
-            "nom_commune_ban", "code_postal_ban",
-            "type_batiment", "periode_construction",
-            "type_energie_principale_chauffage",
-            "conso_5_usages_ep",
-        ],
-        low_memory=False,
-    )
-    df = df[df["nom_commune_ban"].str.upper() == "NANTES"].copy()
-    df = df.dropna(subset=[
-        "coordonnee_cartographique_x_ban",
-        "coordonnee_cartographique_y_ban",
-        "etiquette_dpe",
-    ])
-    lons, lats = _transformer.transform(
-        df["coordonnee_cartographique_x_ban"].values,
-        df["coordonnee_cartographique_y_ban"].values,
-    )
-    df["lat"] = lats
-    df["lon"] = lons
-    df = df[df["lat"].between(47.15, 47.32) & df["lon"].between(-1.65, -1.45)]
-    df["color_dpe"] = df["etiquette_dpe"].map(DPE_COLORS)
-    # Score numérique pour les zones DPE (Hexagones) : A=7, G=1
-    df["dpe_score"] = df["etiquette_dpe"].map({"A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2, "G": 1})
-    df = df[df["color_dpe"].notna()]
-    df["surface_habitable_logement"] = pd.to_numeric(
-        df["surface_habitable_logement"], errors="coerce"
-    )
-    df["conso_5_usages_ep"] = pd.to_numeric(df["conso_5_usages_ep"], errors="coerce")
-    df["surface_fmt"] = df["surface_habitable_logement"].apply(
-        lambda x: f"{x:.0f} m2" if pd.notna(x) else "N/A"
-    )
-    df["conso_fmt"] = df["conso_5_usages_ep"].apply(
-        lambda x: f"{x:.0f} kWh/m2/an" if pd.notna(x) else "N/A"
-    )
-    df["adresse_fmt"] = df["adresse_ban"].fillna("Adresse inconnue")
+import duckdb
+import os
 
-    # Générer les empreintes de bâtiments (polygones)
-    df["building_polygon"] = [
-        _make_building_polygon(
-            row["lon"], row["lat"],
-            type_local=row.get("type_batiment", "Appartement"),
-            seed=i + 500_000,
-        )
-        for i, row in df.iterrows()
-    ]
-    return df.reset_index(drop=True)
+DB_PATH = "sae601_nantes.duckdb"
 
-
-@st.cache_data(show_spinner="Chargement du référentiel d'adresses BAN (Nantes)…")
-def load_ban_nantes():
-    """Charge les adresses BAN filtrées sur Nantes (code_insee 44109)."""
-    df = pd.read_csv(
-        "c:/projet_2026/data/ban/adresses-44.csv",
-        sep=";",
-        usecols=["id_fantoir", "numero", "lon", "lat"],
-        low_memory=False,
-        dtype={"numero": str, "id_fantoir": str},
-    )
-    df = df[df["id_fantoir"].str.startswith("44109", na=False)].copy()
-    df["code_voie"] = df["id_fantoir"].str.split("_").str[-1]
-    df["no_voie"] = df["numero"].str.strip()
-    df = df[["code_voie", "no_voie", "lat", "lon"]].drop_duplicates(
-        subset=["code_voie", "no_voie"]
-    )
-    df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
-    df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
-    return df.dropna(subset=["lat", "lon"]).reset_index(drop=True)
-
-
-@st.cache_data(show_spinner="Chargement et géocodage des transactions DVF 2025…")
-def load_dvf_geocoded():
-    """
-    Charge les ventes DVF Nantes (Maison/Appartement) et les géocode
-    via la BAN (jointure sur code FANTOIR + numéro de voie).
-    """
-    rows = []
-    with open(
-        "c:/projet_2026/data/dvf/dvf-2025-dept44.csv",
-        "r", encoding="utf-8", errors="replace",
-    ) as f:
-        f.readline()
-        for line in f:
-            parts = line.rstrip("\n").split(",")
-            if len(parts) < 20 or parts[20].strip() != "109":
-                continue
-            if parts[9].strip() != "Vente":
-                continue
-            extra = len(parts) - 43
-            type_local_idx = 36 + extra
-            type_local = (
-                parts[type_local_idx].strip() if type_local_idx < len(parts) else ""
-            )
-            if type_local not in ("Maison", "Appartement"):
-                continue
-
-            val_raw = parts[10].strip()
-            surf_raw = (
-                parts[38 + extra].strip() if (38 + extra) < len(parts) else ""
-            )
-            pieces_raw = (
-                parts[39 + extra].strip() if (39 + extra) < len(parts) else ""
-            )
-            code_voie = parts[15].strip() if 15 < len(parts) else ""
-            date_mut = parts[8].strip() if 8 < len(parts) else ""
-
-            # Numéro de voie : essai position 11, puis 12 si vide/nul
-            no_voie = parts[11].strip()
-            if no_voie in ("00", "", "0"):
-                no_voie = parts[12].strip() if 12 < len(parts) else ""
-
-            try:
-                valeur = float(val_raw)
-            except ValueError:
-                valeur = np.nan
-            try:
-                surface = float(surf_raw)
-            except ValueError:
-                surface = np.nan
-            try:
-                pieces = int(float(pieces_raw))
-            except (ValueError, TypeError):
-                pieces = np.nan
-
-            rows.append({
-                "valeur_fonciere": valeur,
-                "type_local": type_local,
-                "surface_m2": surface,
-                "nb_pieces": pieces,
-                "code_voie": code_voie,
-                "no_voie": no_voie,
-                "date_mutation": date_mut,
-            })
-
-    df = pd.DataFrame(rows)
-    df["valeur_fonciere"] = pd.to_numeric(df["valeur_fonciere"], errors="coerce")
-    df["surface_m2"] = pd.to_numeric(df["surface_m2"], errors="coerce")
-    df = df[
-        df["valeur_fonciere"].between(20_000, 5_000_000)
-        & df["surface_m2"].between(10, 400)
-    ].copy()
-    df["no_voie"] = df["no_voie"].astype(str).str.strip()
-
-    # Géocodage via BAN
-    ban = load_ban_nantes()
-    street_centroids = (
-        ban.groupby("code_voie")[["lat", "lon"]].median().reset_index()
-    )
-    street_centroids.columns = ["code_voie", "lat_s", "lon_s"]
-
-    merged = df.merge(ban, on=["code_voie", "no_voie"], how="left")
-    merged = merged.merge(street_centroids, on="code_voie", how="left")
-    merged["lat"] = merged["lat"].fillna(merged["lat_s"])
-    merged["lon"] = merged["lon"].fillna(merged["lon_s"])
-    merged = merged.dropna(subset=["lat", "lon"])
-
-    # Filtrage bounding box
-    merged = merged[
-        merged["lat"].between(47.15, 47.32)
-        & merged["lon"].between(-1.65, -1.45)
-    ]
-
-    # Pré-calculs
-    merged["prix_m2"] = (merged["valeur_fonciere"] / merged["surface_m2"]).round(0)
-    merged["valeur_fmt"] = merged["valeur_fonciere"].apply(
+@st.cache_data(show_spinner="Connexion à la base DuckDB et chargement des données…")
+def load_data():
+    if not os.path.exists(DB_PATH):
+        st.error(f"Base de données introuvable : {DB_PATH}. Veuillez d'abord mettre à jour les départements.")
+        st.stop()
+        
+    con = duckdb.connect(DB_PATH, read_only=True)
+    
+    # 1. Transactions DVF
+    # On récupère les transactions géocodées. On renomme certaines colonnes 
+    # pour coller à l'ancien format de l'interface sans casser la vue.
+    df_dvf = con.execute("""
+        SELECT 
+            prix AS valeur_fonciere,
+            type_bien AS type_local,
+            surface AS surface_m2,
+            pieces AS nb_pieces,
+            lat, lon,
+            prix_m2,
+            dpe_classe, ges_classe,
+            date_mutation,
+            nom_commune
+        FROM fait_transactions
+        WHERE lat IS NOT NULL AND lon IS NOT NULL
+          AND lat BETWEEN 47.15 AND 47.32
+          AND lon BETWEEN -1.65 AND -1.45
+          AND prix BETWEEN 20000 AND 5000000
+          AND surface BETWEEN 10 AND 400
+    """).df()
+    
+    # Pré-calculs DVF
+    df_dvf["valeur_fmt"] = df_dvf["valeur_fonciere"].apply(
         lambda x: f"{x:,.0f} EUR".replace(",", " ") if pd.notna(x) else "N/A"
     )
-    merged["prix_m2_fmt"] = merged["prix_m2"].apply(
+    df_dvf["prix_m2_fmt"] = df_dvf["prix_m2"].apply(
         lambda x: f"{x:,.0f} EUR/m2".replace(",", " ") if pd.notna(x) else "N/A"
     )
-    # Seuils dynamiques : terciles (33% / 66%) pour répartir en 3 groupes égaux
-    prix_m2_valid = merged["prix_m2"].dropna()
+    
+    prix_m2_valid = df_dvf["prix_m2"].dropna()
     seuil_bas = prix_m2_valid.quantile(0.33)
     seuil_haut = prix_m2_valid.quantile(0.66)
-    merged["color_prix"] = merged["prix_m2"].apply(
+    df_dvf["color_prix"] = df_dvf["prix_m2"].apply(
         lambda x: price_color(x, seuil_bas, seuil_haut)
     )
-    # Stocker les seuils pour les légendes
-    merged.attrs["seuil_bas"] = seuil_bas
-    merged.attrs["seuil_haut"] = seuil_haut
+    df_dvf.attrs["seuil_bas"] = seuil_bas
+    df_dvf.attrs["seuil_haut"] = seuil_haut
 
-    # Couleur par type de bien
-    merged["color_type"] = merged["type_local"].map({
+    df_dvf["color_type"] = df_dvf["type_local"].map({
         "Maison": [230, 126, 34, 200],
         "Appartement": [52, 152, 219, 200],
     })
 
-    # Générer les empreintes de bâtiments (polygones)
-    merged["building_polygon"] = [
+    df_dvf["building_polygon"] = [
         _make_building_polygon(
             row["lon"], row["lat"],
             type_local=row.get("type_local", "Appartement"),
             seed=i,
         )
-        for i, row in merged.iterrows()
+        for i, row in df_dvf.iterrows()
     ]
-    return merged.reset_index(drop=True)
-
-
-@st.cache_data(show_spinner="Chargement des stations de transport…")
-def load_transport():
-    df = pd.read_csv(
-        "c:/projet_2026/data/transport/stations-44.csv",
-        sep=";", encoding="utf-8",
+    
+    # 2. DPE (basé sur les transactions ayant un DPE connu)
+    df_dpe = df_dvf[df_dvf['dpe_classe'].notna()].copy()
+    df_dpe = df_dpe.rename(columns={
+        "dpe_classe": "etiquette_dpe",
+        "ges_classe": "etiquette_ges",
+        "surface_m2": "surface_habitable_logement",
+        "type_local": "type_batiment"
+    })
+    
+    df_dpe["color_dpe"] = df_dpe["etiquette_dpe"].map(DPE_COLORS)
+    df_dpe["dpe_score"] = df_dpe["etiquette_dpe"].map({"A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2, "G": 1})
+    df_dpe["conso_5_usages_ep"] = 8 - df_dpe["dpe_score"] # Score synthétique pour la heatmap
+    df_dpe = df_dpe.dropna(subset=["color_dpe"])
+    
+    df_dpe["surface_fmt"] = df_dpe["surface_habitable_logement"].apply(
+        lambda x: f"{x:.0f} m2" if pd.notna(x) else "N/A"
     )
-    df = df.dropna(subset=["lat", "lon"])
-    df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
-    df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
-    df = df[df["lat"].between(47.15, 47.32) & df["lon"].between(-1.65, -1.45)]
-    return df.reset_index(drop=True)
+    df_dpe["conso_fmt"] = "N/A"
+    df_dpe["adresse_fmt"] = df_dpe["nom_commune"].fillna("Adresse inconnue")
 
+    df_dpe["building_polygon"] = [
+        _make_building_polygon(
+            row["lon"], row["lat"],
+            type_local=row.get("type_batiment", "Appartement"),
+            seed=i + 500_000,
+        )
+        for i, row in df_dpe.iterrows()
+    ]
+    
+    # 3. Transports
+    df_transport = con.execute("""
+        SELECT lat, lon, name, railway_type
+        FROM dim_transport
+        WHERE lat IS NOT NULL AND lon IS NOT NULL
+          AND lat BETWEEN 47.15 AND 47.32
+          AND lon BETWEEN -1.65 AND -1.45
+    """).df()
+    
+    return df_dpe, df_dvf, df_transport
 
 # Chargement
-df_dpe = load_dpe()
-df_dvf = load_dvf_geocoded()
-df_transport = load_transport()
+df_dpe, df_dvf, df_transport = load_data()
 
 # ---------------------------------------------------------------------------
 # 3. BARRE LATÉRALE – FILTRES
@@ -993,8 +876,7 @@ tab_t1, tab_t2, tab_t3 = st.tabs(["DPE Nantes", "DVF Nantes (géocodées)", "Sta
 with tab_t1:
     cols_dpe_show = [
         "adresse_fmt", "etiquette_dpe", "surface_fmt",
-        "type_batiment", "periode_construction",
-        "type_energie_principale_chauffage", "conso_fmt",
+        "type_batiment", "conso_fmt",
     ]
     st.dataframe(
         df_dpe_f[cols_dpe_show].rename(columns={
@@ -1002,11 +884,9 @@ with tab_t1:
             "etiquette_dpe": "DPE",
             "surface_fmt": "Surface",
             "type_batiment": "Type bâtiment",
-            "periode_construction": "Période",
-            "type_energie_principale_chauffage": "Énergie chauffage",
             "conso_fmt": "Conso. 5 usages",
         }).head(200),
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
 
