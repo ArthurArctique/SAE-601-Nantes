@@ -118,7 +118,41 @@
         <h1>🗺️ Modèle Conceptuel & Logique de Données</h1>
         <p>Ce document présente la structure physique et relationnelle de la base de données <strong>sae601_nantes.duckdb</strong> sous forme de schéma en étoile et de flux de vues relationnelles.</p>
 
-        <h2>1. Schéma en Étoile</h2>
+        <h2>1. Schéma Simplifié (Clés de jointure)</h2>
+        <div class="diagram-card">
+            <pre class="mermaid">
+erDiagram
+    DIM_COMMUNES {
+        VARCHAR code_commune PK
+    }
+    DIM_BAN {
+        VARCHAR code_insee FK
+    }
+    DIM_DPE {
+        VARCHAR code_insee_ban FK
+    }
+    FAIT_TRANSACTIONS {
+        VARCHAR code_insee FK
+    }
+    DIM_INSEE {
+        VARCHAR CODGEO PK
+    }
+    DIM_ECOLES {}
+    DIM_TRANSPORT {}
+    DIM_PEB {}
+
+    DIM_COMMUNES ||--o{ DIM_BAN : "code_commune = code_insee"
+    DIM_COMMUNES ||--o{ FAIT_TRANSACTIONS : "code_commune = code_insee"
+    DIM_COMMUNES ||--o{ DIM_DPE : "code_commune = code_insee_ban"
+    DIM_COMMUNES ||--|| DIM_INSEE : "code_commune = CODGEO"
+    DIM_BAN }o--o| FAIT_TRANSACTIONS : "géocodage spatial"
+    FAIT_TRANSACTIONS }o--o| DIM_ECOLES : "proximité spatiale"
+    FAIT_TRANSACTIONS }o--o| DIM_TRANSPORT : "proximité spatiale"
+    FAIT_TRANSACTIONS }o--o| DIM_PEB : "intersection spatiale"
+            </pre>
+        </div>
+
+        <h2>2. Schéma en Étoile Détaillé</h2>
         <div class="diagram-card">
             <pre class="mermaid">
 erDiagram
@@ -242,7 +276,7 @@ erDiagram
             </pre>
         </div>
 
-        <h2>2. Vues Relationnelles</h2>
+        <h2>3. Vues Relationnelles</h2>
         <div class="diagram-card">
             <pre class="mermaid">
 flowchart LR
@@ -278,7 +312,7 @@ flowchart LR
             </pre>
         </div>
 
-        <h2>3. Description des Vues</h2>
+        <h2>4. Description des Vues</h2>
         <table>
             <thead>
                 <tr>
