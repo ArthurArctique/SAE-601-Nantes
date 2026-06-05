@@ -71,16 +71,13 @@ def main():
             "numero_dpe",
             "etiquette_dpe",
             "etiquette_ges",
-            "type_batiment",
             "annee_construction",
-            "surface_habitable_logement",
-            "conso_5_usages_par_m2_ep",
-            "emission_ges_5_usages par_m2"      AS emission_ges_par_m2,
-            "code_insee_ban",
+            "date_reception_dpe",
+            "numero_voie_ban",
+            "nom_rue_ban",
             "nom_commune_ban",
-            "code_postal_ban",
-            "coordonnee_cartographique_x_ban"   AS x_ban,
-            "coordonnee_cartographique_y_ban"   AS y_ban
+            "code_insee_ban",
+            "conso_5_usages_par_m2_ep"
         FROM read_csv_auto('{url_hf}', header=true, all_varchar=true)
         WHERE SUBSTR(code_insee_ban, 1, 2) IN ('{dept_list}')
     """
@@ -91,7 +88,7 @@ def main():
         print("Table dim_dpe créée avec succès.")
     except Exception as e:
         print(f"Erreur DPE DuckDB: {e}. Création d'une table vide.")
-        con.execute("""CREATE TABLE dim_dpe (numero_dpe VARCHAR, etiquette_dpe VARCHAR, etiquette_ges VARCHAR, type_batiment VARCHAR, annee_construction VARCHAR, surface_habitable_logement VARCHAR, conso_5_usages_par_m2_ep VARCHAR, emission_ges_par_m2 VARCHAR, code_insee_ban VARCHAR, nom_commune_ban VARCHAR, code_postal_ban VARCHAR, x_ban VARCHAR, y_ban VARCHAR)""")
+        con.execute("""CREATE TABLE dim_dpe (numero_dpe VARCHAR, etiquette_dpe VARCHAR, etiquette_ges VARCHAR, annee_construction VARCHAR, date_reception_dpe VARCHAR, numero_voie_ban VARCHAR, nom_rue_ban VARCHAR, nom_commune_ban VARCHAR, code_insee_ban VARCHAR, conso_5_usages_par_m2_ep VARCHAR)""")
 
     
     # Récupération du référentiel DPE pour l'enrichissement DVF plus tard
